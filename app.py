@@ -120,11 +120,12 @@ elif page == "2) Scenario Builder":
     st.subheader("Economic Parameters (year-constant spreads; single zone)")
     col1, col2, col3 = st.columns(3)
     with col1:
-        S.s_HH = st.number_input("Retail spread s_HH (€/kWh)", min_value=0.0, value=S.s_HH or 0.10, step=0.01, format="%.4f")
-    S.alpha_HH = st.slider(
+        S.alpha_HH = st.slider(
             "alpha_HH (split)", 0.0, 1.0, S.alpha_HH if S.alpha_HH is not None else 0.5, 0.01
         )
-        S.phi_HH = st.slider("phi_HH (gap share)", 0.0, 1.0, S.phi_HH if S.phi_HH is not None else 0.3, 0.01)
+        S.phi_HH = st.slider(
+            "phi_HH (gap share)", 0.0, 1.0, S.phi_HH if S.phi_HH is not None else 0.3, 0.01
+        )
     with col2:
         S.s_SH = st.number_input("Retail spread s_SHOP (€/kWh)", min_value=0.0, value=S.s_SH or 0.12, step=0.01, format="%.4f")
         S.alpha_SH = st.slider(
