@@ -10,7 +10,8 @@ class AppState:
     shop_df: Optional[pd.DataFrame] = None
     pv_perkwp: Optional[pd.DataFrame] = None
     zonal: Optional[pd.DataFrame] = None
-    pun: Optional[pd.DataFrame] = None
+    pun_m: Optional[pd.DataFrame] = None   # monthly PUN €/kWh
+    pun_h: Optional[pd.DataFrame] = None   # hourly PUN €/kWh (expanded)
     hours: Optional[pd.DatetimeIndex] = None
 
     # Fits
