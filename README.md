@@ -32,6 +32,23 @@ This repository hosts a complete Streamlit app that models a **Virtual Energy Co
 - Enter **kWp per prosumer** and **manually map** each prosumer to a set of HH.  
 - **Validate scenario** (every HH must be assigned at least once; kWp ≥ 0).
 
+- ## Price inputs (NEW)
+
+- **Zonal**: `zonal.csv` with columns `timestamp`, `zonal_price (EUR_per_MWh)` (hourly). Used for:
+  - Prosumer matched-price lift (before the retail cap)
+  - Export price \(P^{unm}_t = \max(Z^{kWh}_t + \delta_{unm}, 0)\)
+  - Negative-price override trigger (if \(Z^{kWh}_t < 0\))
+
+- **PUN (monthly in €/kWh)**: `PUN_monthly.csv` with columns:
+  - `timestamp`: any date within each month (e.g., 2024-01-01, 2024-02-01, …)
+  - `PUN (EUR_per_kWh)`: monthly value (€/kWh)
+  
+  The app expands monthly PUN to **hourly** and builds retail:
+  - \(R_{HH,t} = \text{PUN}^{(m)}_{kWh} + s_{HH}\)
+  - \(R_{SHOP,t} = \text{PUN}^{(m)}_{kWh} + s_{SHOP}\)
+
+All **spreads, lift shares (\(\alpha\)), gap shares (\(\phi\)), uplift \(\delta_{unm}\), loss factor \(\ell\), fees, and fixed costs** can be set to **zero** in the Scenario Builder.
+
 **Page 3 — Run Monte Carlo**  
 - The simulation uses the **price calendar** (hard fail if gaps).  
 - It samples loads/generation from the fitted distributions, applies matching/pricing rules, and stores the results.
