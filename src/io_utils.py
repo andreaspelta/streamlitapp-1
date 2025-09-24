@@ -26,7 +26,7 @@ def read_households_excel(file: IO) -> pd.DataFrame:
         df = df[["timestamp", pcol]].rename(columns={pcol: "power_kW_15min"})
         df = _ensure_ts_local(df, "timestamp")
         df["kWh"] = df["power_kW_15min"].astype(float) * 0.25
-        df["ts_h"] = df["timestamp"].dt.floor("H")
+        df["ts_h"] = df["timestamp"].dt.floor("h")
         hourly = df.groupby("ts_h", as_index=False)["kWh"].sum().rename(columns={"ts_h": "timestamp"})
         hourly["household_id"] = sheet
         recs.append(hourly[["timestamp", "household_id", "kWh"]])
@@ -46,7 +46,7 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
         ecol = cands[0]
         df = df[["timestamp", ecol]].rename(columns={ecol: "kWh_15"})
         df = _ensure_ts_local(df, "timestamp")
-        df["ts_h"] = df["timestamp"].dt.floor("H")
+        df["ts_h"] = df["timestamp"].dt.floor("h")
         hourly = df.groupby("ts_h", as_index=False)["kWh_15"].sum().rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
         hourly["shop_id"] = sheet
         recs.append(hourly[["timestamp", "shop_id", "kWh"]])
