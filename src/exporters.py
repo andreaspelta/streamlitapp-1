@@ -64,12 +64,36 @@ def export_all_in_one_xlsx(S: AppState) -> bytes:
         pd.DataFrame(md).to_excel(xl, sheet_name="metadata", index=False)
     return out.getvalue()
 
-def export_hourly_facts(S: AppState, fmt="csv") -> bytes:
-    # Minimal hourly facts example: only prices calendar for now (extend with flows if needed)
+def export_hourly_facts(S, fmt="csv"):
+    """
+    Build a lightweight hourly facts table aligned to S.hours, including:
+      - zonal_price (EUR_per_MWh) [hourly]
+      - PUN (EUR_per_kWh)         [hourly, from monthly expansion]
+    Extend here if you want to add retail, matched volumes, etc.
+    """
+    import pandas as pd
+
+    if S.hours is None or S.zonal is None or S.pun_h is None:
+        raise ValueError("Missing hours, zonal, or hourly PUN. Upload prices and run fitting first.")
+
     df = pd.DataFrame({"timestamp": S.hours})
-    df = df.merge(S.zonal, on="timestamp", how="left")
-    df = df.merge(S.pun, on="timestamp", how="left")
-    if fmt=="csv":
+    # Ensure timestamp dtype for merges
+    zonal = S.zonal.copy()
+    pun_h = S.pun_h.copy()
+
+    # Merge hourly zonal and hourly PUN (€/kWh)
+    df = df.merge(zonal, on="timestamp", how="left")
+    df = df.merge(pun_h, on="timestamp", how="left")
+
+    if fmt == "csv":
         return df.to_csv(index=False).encode("utf-8")
+    elif fmt == "parquet":
+        import io
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+        sink = io.BytesIO()
+        table = pa.Table.from_pandas(df)
+        pq.write_table(table, sink)
+        return sink.getvalue()
     else:
-        out = io.BytesIO(); df.to_parquet(out, index=False); return out.getvalue()
+        raise ValueError("fmt must be 'csv' or 'parquet'")
