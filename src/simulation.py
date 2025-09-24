@@ -133,7 +133,7 @@ def run_monte_carlo(
     rng = np.random.default_rng(seed)
     # Align hourly price frames
     z = zonal.set_index("timestamp").reindex(hours)["zonal_price (EUR_per_MWh)"].ffill()
-    p = pun_hourly_kwh.set_index("timestamp").reindex(hours)["PUN (EUR_per_kWh)"].ffill()
+    p = pun_hourly_kwh.set_index("timestamp").reindex(hours)["PUN (EUR_per_KWh)".replace("KWh","kWh")].ffill()
     price_df = pd.DataFrame({"timestamp": hours, "zonal": z.values, "pun_kwh": p.values})
 
     nP = len(prosumer_ids); nH = len(hh_ids); nK = len(shop_ids)
@@ -151,10 +151,11 @@ def run_monte_carlo(
     for sidx in range(S):
         r = np.random.default_rng(rng.integers(0, 2**32-1))
 
-        pros_load = {pid: sample_hh_like(hours, hh_fit, r) for pid in prosumer_ids}
-        pros_gen  = {pid: sample_pv(hours, pv_fit, float(kwp_map.get(pid, 0.0)), r) for pid in prosumer_ids}
-        hh_load   = {hid: sample_hh_like(hours, hh_fit, r) for hid in hh_ids}
-        shop_load = {kid: sample_shop_like(hours, shop_fit, r) for kid in shop_ids}
+        # >>> Key change: store as pandas Series indexed by 'hours'
+        pros_load = {pid: pd.Series(sample_hh_like(hours, hh_fit, r), index=hours) for pid in prosumer_ids}
+        pros_gen  = {pid: pd.Series(sample_pv(hours, pv_fit, float(kwp_map.get(pid, 0.0)), r), index=hours) for pid in prosumer_ids}
+        hh_load   = {hid: pd.Series(sample_hh_like(hours, hh_fit, r), index=hours) for hid in hh_ids}
+        shop_load = {kid: pd.Series(sample_shop_like(hours, shop_fit, r), index=hours) for kid in shop_ids}
 
         m_hh = 0.0; m_shop = 0.0
         imp_hh = 0.0; imp_shop = 0.0
@@ -166,9 +167,9 @@ def run_monte_carlo(
             ts = row["timestamp"]; zon = float(row["zonal"]); pun_kwh = float(row["pun_kwh"])
             layer = price_layer(zon, pun_kwh)
 
-            # HH and SHOP demands at this hour
-            U_hh = np.array([hh_load[h][ts] for h in hh_ids], dtype=float)
-            U_sh = np.array([shop_load[k][ts] for k in shop_ids], dtype=float)
+            # HH and SHOP demands at this hour (now timestamp-safe)
+            U_hh = np.array([hh_load[h].loc[ts] for h in hh_ids], dtype=float)
+            U_sh = np.array([shop_load[k].loc[ts] for k in shop_ids], dtype=float)
 
             # Baseline retail-only cost (for savings): uses PUN-based retail
             base_cost += (U_hh.sum() * layer["ret_HH"] + U_sh.sum() * layer["ret_SH"])
@@ -176,16 +177,17 @@ def run_monte_carlo(
             # Prosumer surpluses and self-consumption
             residuals = []
             for pid in prosumer_ids:
-                L = pros_load[pid][ts]; G = pros_gen[pid][ts]
+                L = float(pros_load[pid].loc[ts])
+                G = float(pros_gen[pid].loc[ts])
                 pv_sum += G
-                SC = min(L, G)
+                SC = min(L, G)  # self-consumption (not explicitly used in pricing layer above)
                 surplus = max(G - L, 0.0)
+
                 # Designated HH first (ELWF)
                 lst = mapping.get(pid, [])
                 if len(lst) > 0 and surplus > 0:
                     idxs = [hh_ids.index(h) for h in lst if h in hh_ids]
                     need = U_hh[idxs].copy()
-                    # Equal-level fill
                     taken = 0.0
                     if need.size:
                         alloc, resid = equal_level_fill(surplus, need)
@@ -196,6 +198,7 @@ def run_monte_carlo(
                     rev += taken * layer["Ppros_HH"]
                     cost += taken * layer["Pcons_HH"]
                     gap_eur += (taken * (1 - layer["loss_factor"])) * layer["gap_HH"]
+
                 residuals.append(surplus)
 
             # Pool residual to SHOPS
@@ -219,7 +222,7 @@ def run_monte_carlo(
             exp_total += pool
             rev += pool * layer["P_unm"]
 
-            cons_sum += (U_hh.sum() + m_hh) + (U_sh.sum() + m_shop)  # running
+            cons_sum += (U_hh.sum() + m_hh) + (U_sh.sum() + m_shop)  # running aggregate (approx.)
 
         matched_hh[sidx] = m_hh; matched_shop[sidx] = m_shop
         import_hh[sidx] = imp_hh; import_shop[sidx] = imp_shop
