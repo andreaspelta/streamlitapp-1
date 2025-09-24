@@ -121,24 +121,59 @@ elif page == "2) Scenario Builder":
     col1, col2, col3 = st.columns(3)
     with col1:
         S.s_HH = st.number_input("Retail spread s_HH (€/kWh)", min_value=0.0, value=S.s_HH or 0.10, step=0.01, format="%.4f")
-        S.alpha_HH = st.slider("alpha_HH (split)", 0.0, 1.0, S.alpha_HH or 0.5, 0.01)
-        S.phi_HH = st.slider("phi_HH (gap share)", 0.0, 1.0, S.phi_HH or 0.3, 0.01)
+    S.alpha_HH = st.slider(
+            "alpha_HH (split)", 0.0, 1.0, S.alpha_HH if S.alpha_HH is not None else 0.5, 0.01
+        )
+        S.phi_HH = st.slider(
+            "phi_HH (gap share)", 0.0, 1.0, S.phi_HH if S.phi_HH is not None else 0.3, 0.01
+        )
     with col2:
         S.s_SH = st.number_input("Retail spread s_SHOP (€/kWh)", min_value=0.0, value=S.s_SH or 0.12, step=0.01, format="%.4f")
-        S.alpha_SH = st.slider("alpha_SHOP (split)", 0.0, 1.0, S.alpha_SH or 0.5, 0.01)
-        S.phi_SH = st.slider("phi_SHOP (gap share)", 0.0, 1.0, S.phi_SH or 0.3, 0.01)
+        S.alpha_SH = st.slider(
+            "alpha_SHOP (split)", 0.0, 1.0, S.alpha_SH if S.alpha_SH is not None else 0.5, 0.01
+        )
+        S.phi_SH = st.slider(
+            "phi_SHOP (gap share)", 0.0, 1.0, S.phi_SH if S.phi_SH is not None else 0.3, 0.01
+        )
     with col3:
-        S.delta_unm = st.number_input("δ_unm (€/kWh) export uplift", value=S.delta_unm or 0.0, step=0.01, format="%.4f")
-        S.loss_factor = st.slider("Loss factor ℓ (platform gap on delivered)", 0.0, 1.0, S.loss_factor or 0.05, 0.01)
+        S.delta_unm = st.number_input(
+            "δ_unm (€/kWh) export uplift",
+            value=S.delta_unm if S.delta_unm is not None else 0.0,
+            step=0.01,
+            format="%.4f",
+        )
+        S.loss_factor = st.slider(
+            "Loss factor ℓ (platform gap on delivered)",
+            0.0,
+            1.0,
+            S.loss_factor if S.loss_factor is not None else 0.05,
+            0.01,
+        )
 
     st.subheader("Platform Fees and Fixed Cost")
     colf1, colf2 = st.columns(2)
     with colf1:
-        S.f_pros = st.number_input("Prosumer monthly fee (€/month)", value=S.f_pros or 2.0, step=0.5)
-        S.f_hh = st.number_input("Household monthly fee (€/month)", value=S.f_hh or 1.0, step=0.5)
-        S.f_shop = st.number_input("Shop monthly fee (€/month)", value=S.f_shop or 1.5, step=0.5)
+        S.f_pros = st.number_input(
+            "Prosumer monthly fee (€/month)",
+            value=S.f_pros if S.f_pros is not None else 2.0,
+            step=0.5,
+        )
+        S.f_hh = st.number_input(
+            "Household monthly fee (€/month)",
+            value=S.f_hh if S.f_hh is not None else 1.0,
+            step=0.5,
+        )
+        S.f_shop = st.number_input(
+            "Shop monthly fee (€/month)",
+            value=S.f_shop if S.f_shop is not None else 1.5,
+            step=0.5,
+        )
     with colf2:
-        S.platform_fixed = st.number_input("Platform fixed monthly cost (€/month)", value=S.platform_fixed or 200.0, step=10.0)
+        S.platform_fixed = st.number_input(
+            "Platform fixed monthly cost (€/month)",
+            value=S.platform_fixed if S.platform_fixed is not None else 200.0,
+            step=10.0,
+        )
 
     # Synthetic IDs
     S.prosumer_ids = [f"P{i:03d}" for i in range(1, int(S.N_P) + 1)]
