@@ -2,7 +2,7 @@ import streamlit as st
 from src.state import get_state, reset_all_state
 from src.io_utils import (
     read_households_excel, read_shops_excel, read_pv_json,
-    read_zonal_csv, read_pun_csv, ensure_price_calendar
+    read_zonal_csv, read_pun_monthly_csv, ensure_price_hours, expand_monthly_pun_to_hours
 )
 from src.fitting import fit_households, fit_shops
 from src.pv_model import fit_pv_optionB_v3
@@ -12,7 +12,7 @@ from src.ui_components import (
     info_box, warn_box, error_box
 )
 from src.prices import build_price_layers, NEGATIVE_RULE
-from src.simulation import run_monte_carlo, set_fee_params  # <-- added set_fee_params here
+from src.simulation import run_monte_carlo, set_fee_params
 from src.kpi import render_kpi_dashboard, compute_kpi_distributions
 from src.exporters import (
     build_calibration_workbook_hh, build_calibration_workbook_shop,
@@ -35,7 +35,10 @@ S = get_state()
 # ---- Page 1: Upload & Fit
 if page == "1) Upload & Fit":
     st.header("Data Upload & Calibration (Fitting)")
-    st.markdown("Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.")
+    st.markdown("""
+Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.  
+**Prices rule (NEW):** Retail = **Monthly PUN (€/kWh)** + spread. Zonal remains hourly (€/MWh) for export & split base.
+    """)
 
     with st.expander("Upload — Households (Excel: 1 sheet per household; 15-min kW)", expanded=True):
         hh_file = st.file_uploader("Households.xlsx", type=["xlsx"])
@@ -58,24 +61,27 @@ if page == "1) Upload & Fit":
                 S.pv_perkwp = read_pv_json(pv_file)
             info_box(f"PV per-kWp hours: {len(S.pv_perkwp)}.")
 
-    with st.expander("Upload — Prices (Single Zone)", expanded=True):
+    with st.expander("Upload — Prices", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
             zonal_file = st.file_uploader("zonal.csv (timestamp, zonal_price (EUR_per_MWh))", type=["csv"], key="zonal")
             if zonal_file:
                 S.zonal = read_zonal_csv(zonal_file)
-                info_box(f"Zonal rows: {len(S.zonal)}.")
+                info_box(f"Zonal rows: {len(S.zonal)} (hourly).")
         with col2:
-            pun_file = st.file_uploader("PUN.csv (timestamp, PUN (EUR_per_MWh))", type=["csv"], key="pun")
+            pun_file = st.file_uploader("PUN_monthly.csv (timestamp(any day in month), PUN (EUR_per_kWh))", type=["csv"], key="pun")
             if pun_file:
-                S.pun = read_pun_csv(pun_file)
-                info_box(f"PUN rows: {len(S.pun)}.")
+                S.pun_m = read_pun_monthly_csv(pun_file)
+                info_box(f"Monthly PUN rows: {len(S.pun_m)} (€/kWh).")
 
-        # Build calendar union and hard-fail on gaps
-        if S.zonal is not None and S.pun is not None:
+        # Build calendar from ZONAL hours, then expand monthly PUN to hours
+        if S.zonal is not None:
             try:
-                S.hours = ensure_price_calendar(S.zonal, S.pun)
-                info_box(f"Calendar ok: {len(S.hours)} hours.")
+                S.hours = ensure_price_hours(S.zonal)
+                info_box(f"Calendar ok from zonal: {len(S.hours)} hours.")
+                if S.pun_m is not None:
+                    S.pun_h = expand_monthly_pun_to_hours(S.pun_m, S.hours)
+                    info_box("Expanded monthly PUN to hourly (€/kWh).")
             except Exception as e:
                 error_box(str(e))
 
@@ -83,7 +89,7 @@ if page == "1) Upload & Fit":
     st.subheader("Fit Distributions")
     if st.button("Run fitting (HH, SHOP, PV)"):
         if S.hh_df is None or S.shop_df is None or S.pv_perkwp is None or S.hours is None:
-            error_box("Please upload Households, Shops, PV JSON, and Prices first.")
+            error_box("Please upload Households, Shops, PV JSON, and Zonal (for calendar) first. Monthly PUN is also required for simulation.")
         else:
             with spinner_block("Fitting Households..."):
                 S.hh_fit, S.hh_diag = fit_households(S.hh_df)
@@ -120,59 +126,25 @@ elif page == "2) Scenario Builder":
     st.subheader("Economic Parameters (year-constant spreads; single zone)")
     col1, col2, col3 = st.columns(3)
     with col1:
-        S.alpha_HH = st.slider(
-            "alpha_HH (split)", 0.0, 1.0, S.alpha_HH if S.alpha_HH is not None else 0.5, 0.01
-        )
-        S.phi_HH = st.slider(
-            "phi_HH (gap share)", 0.0, 1.0, S.phi_HH if S.phi_HH is not None else 0.3, 0.01
-        )
+        S.s_HH = st.number_input("Retail spread s_HH (€/kWh)", min_value=0.0, value=S.s_HH or 0.10, step=0.01, format="%.5f")
+        S.alpha_HH = st.slider("alpha_HH (split)", 0.0, 1.0, S.alpha_HH or 0.5, 0.01)
+        S.phi_HH = st.slider("phi_HH (gap share)", 0.0, 1.0, S.phi_HH or 0.3, 0.01)
     with col2:
-        S.s_SH = st.number_input("Retail spread s_SHOP (€/kWh)", min_value=0.0, value=S.s_SH or 0.12, step=0.01, format="%.4f")
-        S.alpha_SH = st.slider(
-            "alpha_SHOP (split)", 0.0, 1.0, S.alpha_SH if S.alpha_SH is not None else 0.5, 0.01
-        )
-        S.phi_SH = st.slider(
-            "phi_SHOP (gap share)", 0.0, 1.0, S.phi_SH if S.phi_SH is not None else 0.3, 0.01
-        )
+        S.s_SH = st.number_input("Retail spread s_SHOP (€/kWh)", min_value=0.0, value=S.s_SH or 0.12, step=0.01, format="%.5f")
+        S.alpha_SH = st.slider("alpha_SHOP (split)", 0.0, 1.0, S.alpha_SH or 0.5, 0.01)
+        S.phi_SH = st.slider("phi_SHOP (gap share)", 0.0, 1.0, S.phi_SH or 0.3, 0.01)
     with col3:
-        S.delta_unm = st.number_input(
-            "δ_unm (€/kWh) export uplift",
-            value=S.delta_unm if S.delta_unm is not None else 0.0,
-            step=0.01,
-            format="%.4f",
-        )
-        S.loss_factor = st.slider(
-            "Loss factor ℓ (platform gap on delivered)",
-            0.0,
-            1.0,
-            S.loss_factor if S.loss_factor is not None else 0.05,
-            0.01,
-        )
+        S.delta_unm = st.number_input("δ_unm (€/kWh) export uplift", value=S.delta_unm or 0.0, step=0.01, format="%.5f")
+        S.loss_factor = st.slider("Loss factor ℓ (platform gap on delivered)", 0.0, 1.0, S.loss_factor or 0.05, 0.01)
 
-    st.subheader("Platform Fees and Fixed Cost")
+    st.subheader("Platform Fees and Fixed Cost (can be zero)")
     colf1, colf2 = st.columns(2)
     with colf1:
-        S.f_pros = st.number_input(
-            "Prosumer monthly fee (€/month)",
-            value=S.f_pros if S.f_pros is not None else 2.0,
-            step=0.5,
-        )
-        S.f_hh = st.number_input(
-            "Household monthly fee (€/month)",
-            value=S.f_hh if S.f_hh is not None else 1.0,
-            step=0.5,
-        )
-        S.f_shop = st.number_input(
-            "Shop monthly fee (€/month)",
-            value=S.f_shop if S.f_shop is not None else 1.5,
-            step=0.5,
-        )
+        S.f_pros = st.number_input("Prosumer monthly fee (€/month)", min_value=0.0, value=S.f_pros or 2.0, step=0.5)
+        S.f_hh = st.number_input("Household monthly fee (€/month)", min_value=0.0, value=S.f_hh or 1.0, step=0.5)
+        S.f_shop = st.number_input("Shop monthly fee (€/month)", min_value=0.0, value=S.f_shop or 1.5, step=0.5)
     with colf2:
-        S.platform_fixed = st.number_input(
-            "Platform fixed monthly cost (€/month)",
-            value=S.platform_fixed if S.platform_fixed is not None else 200.0,
-            step=10.0,
-        )
+        S.platform_fixed = st.number_input("Platform fixed monthly cost (€/month)", min_value=0.0, value=S.platform_fixed or 200.0, step=10.0)
 
     # Synthetic IDs
     S.prosumer_ids = [f"P{i:03d}" for i in range(1, int(S.N_P) + 1)]
@@ -202,19 +174,31 @@ elif page == "2) Scenario Builder":
 # ---- Page 3: Run Monte Carlo
 elif page == "3) Run Monte Carlo":
     st.header("Run Monte Carlo")
-    if any(x is None for x in [S.hh_fit, S.shop_fit, S.pv_fit, S.hours, S.zonal, S.pun]):
-        error_box("Missing inputs or calibration. Please complete **Upload & Fit** first.")
+    required = [S.hh_fit, S.shop_fit, S.pv_fit, S.hours, S.zonal, S.pun_m]
+    if any(x is None for x in required):
+        error_box("Missing inputs or calibration. Upload Zonal & Monthly PUN, run fitting, then return here.")
     else:
+        # Build hourly PUN (€/kWh) from monthly table if not done
+        if S.pun_h is None:
+            try:
+                S.pun_h = expand_monthly_pun_to_hours(S.pun_m, S.hours)
+                info_box("Expanded monthly PUN to hourly (€/kWh).")
+            except Exception as e:
+                error_box(f"Could not expand monthly PUN to hours: {e}")
+
         st.write("Calendar hours detected:", len(S.hours))
         st.write("Negative-price rule:", NEGATIVE_RULE)
         if st.button("Run Monte Carlo now"):
-            # Build price layers callable
+            # Build price layers callable (NOTE: now retail uses PUN hourly kWh)
             price_layer = build_price_layers(
-                S.s_HH, S.s_SH, S.alpha_HH, S.phi_HH, S.alpha_SH, S.phi_SH,
-                S.delta_unm, S.loss_factor, S.hh_gift
+                s_hh=S.s_HH, s_sh=S.s_SH,
+                a_hh=S.alpha_HH, phi_hh=S.phi_HH,
+                a_sh=S.alpha_SH, phi_sh=S.phi_SH,
+                delta_unm=S.delta_unm, loss_factor=S.loss_factor,
+                hh_gift=S.hh_gift
             )
 
-            # >>> REQUIRED: pass fees to the simulation module <<<
+            # Pass platform fees/fixed to simulation module
             set_fee_params(S.f_pros, S.f_hh, S.f_shop, S.platform_fixed)
 
             with st.spinner("Simulating ..."):
@@ -229,7 +213,7 @@ elif page == "3) Run Monte Carlo":
                     hh_ids=S.hh_ids,
                     shop_ids=S.shop_ids,
                     zonal=S.zonal,
-                    pun=S.pun,
+                    pun_hourly_kwh=S.pun_h,   # <— hourly PUN in €/kWh
                     price_layer=price_layer,
                     S=int(S.S),
                     seed=int(S.seed),
@@ -326,13 +310,10 @@ else:
 
 1. Upload & fit distributions (Households, Shops, PV Option-B v3).  
 2. Build scenarios: choose counts (N_P, N_HH, N_SHOP), enter kWp, map Prosumer→Households.  
-3. Monte Carlo simulation aligned to **price calendar** (hard-fail on gaps).  
+3. Monte Carlo simulation aligned to **zonal hours**; **Retail = Monthly PUN (€/kWh) + spread**.  
 4. KPI dashboard with **distributions** (mean, sd, p05, p10, p50, p90, p95).  
 5. Exports (Excel + CSV/Parquet), including **calibration workbooks** and **hourly facts**.
-
-See the repository README for a beginner-friendly “Streamlit Cloud + GitHub” step-by-step.
 """)
     if st.button("Reset all session data"):
         reset_all_state()
         st.success("Session state cleared.")
-
