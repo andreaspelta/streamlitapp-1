@@ -110,7 +110,7 @@ def ensure_price_hours(zonal: pd.DataFrame) -> pd.DatetimeIndex:
     """
     h = pd.DatetimeIndex(zonal["timestamp"]).tz_convert(TZ).sort_values()
     # Expected to be hourly continuous (DST handled by local tz)
-    idx = pd.date_range(start=h[0], end=h[-1], freq="H", tz=TZ)
+    idx = pd.date_range(start=h[0], end=h[-1], freq="h", tz=TZ)
     missing = idx.difference(h)
     if len(missing) > 0:
         raise ValueError(f"[Calendar] Zonal has missing hours (hard fail). Example: {list(missing[:5])} ...")
