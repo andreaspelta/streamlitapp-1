@@ -68,32 +68,54 @@ def export_hourly_facts(S, fmt="csv"):
     """
     Build a lightweight hourly facts table aligned to S.hours, including:
       - zonal_price (EUR_per_MWh) [hourly]
-      - PUN (EUR_per_kWh)         [hourly, from monthly expansion]
-    Extend here if you want to add retail, matched volumes, etc.
+      - PUN (EUR_per_kWh)         [hourly, expanded from monthly PUN]
+    Returns bytes suitable for Streamlit download_button.
     """
     import pandas as pd
+    import io
 
-    if S.hours is None or S.zonal is None or S.pun_h is None:
-        raise ValueError("Missing hours, zonal, or hourly PUN. Upload prices and run fitting first.")
+    # Defensive checks (note: we now use S.pun_h, not S.pun)
+    if S.hours is None:
+        raise ValueError("Hourly calendar (S.hours) is missing.")
+    if S.zonal is None:
+        raise ValueError("Zonal prices are missing. Upload zonal.csv on the Upload & Fit page.")
+    if S.pun_h is None:
+        raise ValueError("Hourly PUN (S.pun_h) is missing. Upload monthly PUN and run the expansion step.")
 
-    df = pd.DataFrame({"timestamp": S.hours})
-    # Ensure timestamp dtype for merges
-    zonal = S.zonal.copy()
-    pun_h = S.pun_h.copy()
+    # Prepare frames with correct dtypes
+    hours_df = pd.DataFrame({"timestamp": S.hours})
+    zonal_df = S.zonal.copy()
+    punh_df = S.pun_h.copy()
 
-    # Merge hourly zonal and hourly PUN (€/kWh)
-    df = df.merge(zonal, on="timestamp", how="left")
-    df = df.merge(pun_h, on="timestamp", how="left")
+    # Ensure timestamp columns are datetime with tz
+    zonal_df["timestamp"] = pd.to_datetime(zonal_df["timestamp"]).dt.tz_convert(hours_df["timestamp"].dt.tz)
+    punh_df["timestamp"] = pd.to_datetime(punh_df["timestamp"]).dt.tz_convert(hours_df["timestamp"].dt.tz)
 
+    # Merge hourly zonal and hourly PUN (EUR_per_kWh)
+    out = hours_df.merge(zonal_df, on="timestamp", how="left")
+    out = out.merge(punh_df, on="timestamp", how="left")
+
+    # Optional: ensure expected column names exist
+    if "zonal_price (EUR_per_MWh)" not in out.columns:
+        raise KeyError("Column 'zonal_price (EUR_per_MWh)' not found after merge.")
+    if "PUN (EUR_per_kWh)" not in out.columns:
+        # Some CSV editors might alter capitalization; try common variants once
+        for cand in out.columns:
+            if cand.strip().lower() == "pun (eur_per_kwh)":
+                out.rename(columns={cand: "PUN (EUR_per_kWh)"}, inplace=True)
+                break
+        if "PUN (EUR_per_kWh)" not in out.columns:
+            raise KeyError("Column 'PUN (EUR_per_kWh)' not found after merge.")
+
+    # Emit CSV or Parquet as bytes for Streamlit
     if fmt == "csv":
-        return df.to_csv(index=False).encode("utf-8")
+        return out.to_csv(index=False).encode("utf-8")
     elif fmt == "parquet":
-        import io
         import pyarrow as pa
         import pyarrow.parquet as pq
         sink = io.BytesIO()
-        table = pa.Table.from_pandas(df)
-        pq.write_table(table, sink)
+        pq.write_table(pa.Table.from_pandas(out), sink)
         return sink.getvalue()
     else:
         raise ValueError("fmt must be 'csv' or 'parquet'")
+
