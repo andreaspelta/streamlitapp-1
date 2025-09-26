@@ -28,14 +28,21 @@ def build_price_layers(s_hh, s_sh, a_hh, phi_hh, a_sh, phi_sh, delta_unm, loss_f
             Ppros_HH = 0.0; Pcons_HH = ret_HH; gap_HH = 0.0
             Ppros_SH = 0.0; Pcons_SH = ret_SH; gap_SH = 0.0
         else:
-            # Prosumer price lift off zonal (€/kWh), capped at retail
-            Ppros_HH = min(z + (1 - phi_hh) * a_hh * s_hh, ret_HH)
-            Pcons_HH = ret_HH - (1 - phi_hh) * (1 - a_hh) * s_hh
-            gap_HH = phi_hh * s_hh
+            # Anchor the zonal price to the non-negative domain
+            z_anchor = max(z, 0.0)
 
-            Ppros_SH = min(z + (1 - phi_sh) * a_sh * s_sh, ret_SH)
-            Pcons_SH = ret_SH - (1 - phi_sh) * (1 - a_sh) * s_sh
-            gap_SH = phi_sh * s_sh
+            # Segment spreads depend on the distance between retail and anchored zonal price
+            S_HH = max(ret_HH - z_anchor, 0.0)
+            S_SH = max(ret_SH - z_anchor, 0.0)
+
+            # Prosumer price lift off anchored zonal (€/kWh), capped at retail
+            Ppros_HH = min(z_anchor + (1 - phi_hh) * a_hh * S_HH, ret_HH)
+            Pcons_HH = ret_HH - (1 - phi_hh) * (1 - a_hh) * S_HH
+            gap_HH = phi_hh * S_HH
+
+            Ppros_SH = min(z_anchor + (1 - phi_sh) * a_sh * S_SH, ret_SH)
+            Pcons_SH = ret_SH - (1 - phi_sh) * (1 - a_sh) * S_SH
+            gap_SH = phi_sh * S_SH
 
         if hh_gift and z >= 0:
             # Gift: HH matched at zero for both sides; no gap
