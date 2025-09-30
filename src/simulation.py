@@ -58,19 +58,21 @@ def sample_pv(hours: pd.DatetimeIndex, pv_fit: Dict, kWp: float, rng: np.random.
     prev_state = {}
     for d in uniq_dates:
         s = season_of(pd.Timestamp(str(d)))
-        P = np.array(MK.get(s, {}).get("P", [[0.7,0.3],[0.3,0.7]]))
+        P = np.array(MK.get(s, {}).get("P", [[0.7, 0.3], [0.3, 0.7]]), dtype=float)
         if s not in prev_state:
-            p01 = P[0,1]; p10 = P[1,0]
-            pi_clear = p10/(p01+p10+1e-9)
-            stt = 1 if np.random.rand() < pi_clear else 0
+            p01 = P[0, 1]
+            p10 = P[1, 0]
+            denom = p01 + p10
+            pi_clear = p10 / denom if denom > 0 else 0.5
+            stt = 1 if rng.random() < pi_clear else 0
         else:
-            stt = 1 if np.random.rand() < P[prev_state[s], 1] else 0
+            stt = 1 if rng.random() < P[int(prev_state[s]), 1] else 0
         prev_state[s] = stt
         day_state[d] = stt
         pars = LL.get(s, {"c":2.0,"scale":1.0})
         c = max(float(pars.get("c",2.0)), 0.1)
         sc = max(float(pars.get("scale",1.0)), 1e-6)
-        M_day[d] = stats.fisk.rvs(c, loc=0, scale=sc, random_state=np.random.default_rng())
+        M_day[d] = stats.fisk.rvs(c, loc=0, scale=sc, random_state=rng)
     out = []
     for ts in hours:
         s = seasons[ts]; h = ts.hour
@@ -78,8 +80,8 @@ def sample_pv(hours: pd.DatetimeIndex, pv_fit: Dict, kWp: float, rng: np.random.
         d = ts.date()
         beta = MK.get(s, {}).get("beta", {"alpha":5.0,"beta":5.0})
         a = max(float(beta.get("alpha",5.0)), 0.5); b = max(float(beta.get("beta",5.0)), 0.5)
-        cl = np.random.default_rng().beta(a, b)
-        eps = np.random.default_rng().normal(scale=0.1)
+        cl = rng.beta(a, b)
+        eps = rng.normal(scale=0.1)
         per_kwp = base * M_day[d] * cl * np.exp(eps)
         out.append(max(0.0, kWp * per_kwp))
     return np.array(out, dtype=float)
@@ -168,11 +170,13 @@ def run_monte_carlo(
             layer = price_layer(zon, pun_kwh)
 
             # HH and SHOP demands at this hour (now timestamp-safe)
-            U_hh = np.array([hh_load[h].loc[ts] for h in hh_ids], dtype=float)
-            U_sh = np.array([shop_load[k].loc[ts] for k in shop_ids], dtype=float)
+            hh_full = np.array([hh_load[h].loc[ts] for h in hh_ids], dtype=float)
+            sh_full = np.array([shop_load[k].loc[ts] for k in shop_ids], dtype=float)
+            U_hh = hh_full.copy()
+            U_sh = sh_full.copy()
 
-            # Baseline retail-only cost (for savings): uses PUN-based retail
-            base_cost += (U_hh.sum() * layer["ret_HH"] + U_sh.sum() * layer["ret_SH"])
+            # Baseline retail-only cost (for savings): uses PUN-based retail and full load
+            base_cost += (hh_full.sum() * layer["ret_HH"] + sh_full.sum() * layer["ret_SH"])
 
             # Prosumer surpluses and self-consumption
             residuals = []
@@ -222,7 +226,7 @@ def run_monte_carlo(
             exp_total += pool
             rev += pool * layer["P_unm"]
 
-            cons_sum += (U_hh.sum() + m_hh) + (U_sh.sum() + m_shop)  # running aggregate (approx.)
+            cons_sum += hh_full.sum() + sh_full.sum()
 
         matched_hh[sidx] = m_hh; matched_shop[sidx] = m_shop
         import_hh[sidx] = imp_hh; import_shop[sidx] = imp_shop
