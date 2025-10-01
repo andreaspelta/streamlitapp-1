@@ -17,7 +17,7 @@ from src.kpi import render_kpi_dashboard, compute_kpi_distributions
 from src.exporters import (
     build_calibration_workbook_hh, build_calibration_workbook_shop,
     build_calibration_workbook_pv, export_kpi_quantiles, export_kpi_samples,
-    export_all_in_one_xlsx, export_hourly_facts
+    export_all_in_one_xlsx, export_hourly_facts, build_household_template
 )
 
 st.set_page_config(page_title="Virtual Energy Community", layout="wide")
@@ -41,6 +41,13 @@ Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.
     """)
 
     with st.expander("Upload — Households (Excel: 1 sheet per household; 15-min kW)", expanded=True):
+        st.download_button(
+            "Download 2022 HH template (15-min)",
+            build_household_template(),
+            file_name="households_template_2022.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Pre-filled timestamp column from 1 Jan 2022 00:30 to 1 Jan 2023 00:00 (Europe/Rome).",
+        )
         hh_file = st.file_uploader("Households.xlsx", type=["xlsx"])
         if hh_file:
             with spinner_block("Reading Households Excel..."):
