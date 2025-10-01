@@ -2,13 +2,58 @@ import pandas as pd
 import numpy as np
 from typing import IO
 
+from pandas.api import types as pdt
+
 TZ = "Europe/Rome"
 
 def _ensure_ts_local(df: pd.DataFrame, col="timestamp") -> pd.DataFrame:
-    ts = pd.to_datetime(df[col])
+    """Ensure a timestamp column is timezone-aware in Europe/Rome.
+
+    Supports three input shapes:
+    1. Already datetimelike values (naive or tz-aware).
+    2. Strings with explicit timezone offsets (e.g. ``+0100``).
+    3. Plain strings / Excel datetimes without timezone.
+
+    For naive timestamps we tolerate DST transitions by inferring
+    ambiguous clocks and shifting nonexistent times forward by one hour.
+    """
+
+    series = df[col]
+
+    if pdt.is_datetime64_any_dtype(series):
+        ts = series
+    else:
+        # Detect explicit timezone offsets (e.g. +0100, +02:00, Z)
+        as_str = series.astype(str)
+        has_tz_info = as_str.str.contains(r"(?:[+-][0-9]{2}:?[0-9]{2}|Z)$", regex=True, na=False)
+        if has_tz_info.any():
+            ts = pd.to_datetime(series, utc=True, errors="coerce")
+            if ts.isna().any():
+                raise ValueError("Invalid timestamp with timezone offset detected.")
+            ts = ts.dt.tz_convert(TZ)
+            df[col] = ts
+            return df
+        ts = pd.to_datetime(series, errors="coerce")
+        if ts.isna().any():
+            raise ValueError("Invalid timestamp detected.")
+
     if ts.dt.tz is None:
-        ts = ts.dt.tz_localize(TZ)
-    df[col] = ts.dt.tz_convert(TZ)
+        dup_first = ts.duplicated(keep="first")
+        dup_last = ts.duplicated(keep="last")
+        if dup_first.any() or dup_last.any():
+            ambiguous_flags = np.zeros(len(ts), dtype=bool)
+            ambiguous_flags[dup_last.to_numpy()] = True  # first occurrence → DST
+        else:
+            ambiguous_flags = False
+        ts = ts.dt.tz_localize(
+            TZ,
+            nonexistent="shift_forward",
+            ambiguous=ambiguous_flags,
+        )
+    else:
+        ts = ts.dt.tz_convert(TZ)
+
+    df[col] = ts
     return df
 
 def read_households_excel(file: IO) -> pd.DataFrame:
@@ -26,7 +71,7 @@ def read_households_excel(file: IO) -> pd.DataFrame:
         df = df[["timestamp", pcol]].rename(columns={pcol: "power_kW_15min"})
         df = _ensure_ts_local(df, "timestamp")
         df["kWh"] = df["power_kW_15min"].astype(float) * 0.25
-        df["ts_h"] = df["timestamp"].dt.floor("h")
+        df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
         hourly = df.groupby("ts_h", as_index=False)["kWh"].sum().rename(columns={"ts_h": "timestamp"})
         hourly["household_id"] = sheet
         recs.append(hourly[["timestamp", "household_id", "kWh"]])
@@ -46,7 +91,7 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
         ecol = cands[0]
         df = df[["timestamp", ecol]].rename(columns={ecol: "kWh_15"})
         df = _ensure_ts_local(df, "timestamp")
-        df["ts_h"] = df["timestamp"].dt.floor("h")
+        df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
         hourly = df.groupby("ts_h", as_index=False)["kWh_15"].sum().rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
         hourly["shop_id"] = sheet
         recs.append(hourly[["timestamp", "shop_id", "kWh"]])

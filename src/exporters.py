@@ -5,7 +5,6 @@ from typing import Dict
 from .state import AppState
 from .io_utils import TZ
 
-
 def build_household_template(start="2022-01-01 00:30", end="2023-01-01 00:00") -> bytes:
     """Create a 15-minute household template workbook for 2022."""
 
