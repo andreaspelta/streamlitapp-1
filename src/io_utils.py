@@ -97,12 +97,13 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
         recs.append(hourly[["timestamp", "shop_id", "kWh"]])
     return pd.concat(recs, ignore_index=True).sort_values(["timestamp", "shop_id"])
 
-def read_pv_json(file: IO) -> pd.DataFrame:
-    df = pd.read_json(file)
-    if "records" in df.columns:
-        df = pd.DataFrame(df["records"].tolist())
-    if "timestamp" not in df.columns or "energy_kWh_per_kWp" not in df.columns:
-        raise ValueError("[PV] JSON must contain 'records' with 'timestamp' and 'energy_kWh_per_kWp'")
+def read_pv_excel(file: IO) -> pd.DataFrame:
+    df = pd.read_excel(file)
+    df.columns = [c.strip() for c in df.columns]
+    required_cols = {"timestamp", "energy_kWh_per_kWp"}
+    if not required_cols.issubset(df.columns):
+        missing = required_cols.difference(df.columns)
+        raise ValueError(f"[PV] Excel must contain columns: {', '.join(sorted(missing))}")
     df = df[["timestamp", "energy_kWh_per_kWp"]].rename(columns={"energy_kWh_per_kWp": "kWh_per_kWp"})
     df = _ensure_ts_local(df, "timestamp").sort_values("timestamp")
     return df

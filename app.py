@@ -1,7 +1,7 @@
 import streamlit as st
 from src.state import get_state, reset_all_state
 from src.io_utils import (
-    read_households_excel, read_shops_excel, read_pv_json,
+    read_households_excel, read_shops_excel, read_pv_excel,
     read_zonal_csv, read_pun_monthly_csv, ensure_price_hours, expand_monthly_pun_to_hours
 )
 from src.fitting import fit_households, fit_shops
@@ -17,7 +17,9 @@ from src.kpi import render_kpi_dashboard, compute_kpi_distributions
 from src.exporters import (
     build_calibration_workbook_hh, build_calibration_workbook_shop,
     build_calibration_workbook_pv, export_kpi_quantiles, export_kpi_samples,
-    export_all_in_one_xlsx, export_hourly_facts, build_household_template
+    export_all_in_one_xlsx, export_hourly_facts, build_household_template,
+    build_shop_template, build_pv_excel_template, build_zonal_price_template,
+    build_pun_monthly_template,
 )
 
 st.set_page_config(page_title="Virtual Energy Community", layout="wide")
@@ -36,7 +38,7 @@ S = get_state()
 if page == "1) Upload & Fit":
     st.header("Data Upload & Calibration (Fitting)")
     st.markdown("""
-Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.  
+Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**.
 **Prices rule (NEW):** Retail = **Monthly PUN (€/kWh)** + spread. Zonal remains hourly (€/MWh) for export & split base.
     """)
 
@@ -55,27 +57,57 @@ Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.
             info_box(f"Households loaded: {S.hh_df['household_id'].nunique()} meters, hours = {S.hh_df['timestamp'].nunique()}.")
 
     with st.expander("Upload — Small Shops (Excel: 1 sheet per shop; 15-min kWh in 'ActiveEnergy_Generale')", expanded=True):
+        st.download_button(
+            "Download Shops template (15-min, 2022-09-15 to 2023-09-15)",
+            build_shop_template(),
+            file_name="small_shops_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="20 sheets pre-filled with timestamps every 15 minutes from 15 Sep 2022 to 15 Sep 2023.",
+        )
         shop_file = st.file_uploader("SmallShops.xlsx", type=["xlsx"])
         if shop_file:
             with spinner_block("Reading Small Shops Excel..."):
                 S.shop_df = read_shops_excel(shop_file)  # hourly kWh per shop_id
             info_box(f"Shops loaded: {S.shop_df['shop_id'].nunique()} meters, hours = {S.shop_df['timestamp'].nunique()}.")
 
-    with st.expander("Upload — Prosumer PV (JSON: per-kWp hourly kWh)", expanded=True):
-        pv_file = st.file_uploader("PV.json", type=["json"])
+    with st.expander("Upload — Prosumer PV (Excel: per-kWp hourly kWh)", expanded=True):
+        st.download_button(
+            "Download PV Excel template (hourly, 2018-2023)",
+            build_pv_excel_template(),
+            file_name="pv_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            help="Hourly timestamps (Europe/Rome) from 1 Jan 2018 00:30 to 31 Dec 2023 23:30.",
+        )
+        pv_file = st.file_uploader("PV.xlsx", type=["xlsx"])
         if pv_file:
-            with spinner_block("Reading PV JSON..."):
-                S.pv_perkwp = read_pv_json(pv_file)
+            with spinner_block("Reading PV Excel..."):
+                S.pv_perkwp = read_pv_excel(pv_file)
             info_box(f"PV per-kWp hours: {len(S.pv_perkwp)}.")
 
     with st.expander("Upload — Prices", expanded=True):
         col1, col2 = st.columns(2)
         with col1:
+            zonal_year = st.selectbox("Zonal template year", list(range(2024, 2031)), key="zonal_template_year")
+            st.download_button(
+                f"Download zonal template {zonal_year}",
+                build_zonal_price_template(zonal_year),
+                file_name=f"zonal_template_{zonal_year}.csv",
+                mime="text/csv",
+                help="Hourly timestamps for the selected year with placeholder zonal prices.",
+            )
             zonal_file = st.file_uploader("zonal.csv (timestamp, zonal_price (EUR_per_MWh))", type=["csv"], key="zonal")
             if zonal_file:
                 S.zonal = read_zonal_csv(zonal_file)
                 info_box(f"Zonal rows: {len(S.zonal)} (hourly).")
         with col2:
+            pun_year = st.selectbox("Monthly PUN template year", list(range(2024, 2031)), key="pun_template_year")
+            st.download_button(
+                f"Download monthly PUN template {pun_year}",
+                build_pun_monthly_template(pun_year),
+                file_name=f"pun_monthly_template_{pun_year}.csv",
+                mime="text/csv",
+                help="Monthly timestamps (first day of month) for the selected year.",
+            )
             pun_file = st.file_uploader("PUN_monthly.csv (timestamp(any day in month), PUN (EUR_per_kWh))", type=["csv"], key="pun")
             if pun_file:
                 S.pun_m = read_pun_monthly_csv(pun_file)
@@ -96,7 +128,7 @@ Upload the **Households**, **Small Shops**, **PV per-kWp JSON**, and **Prices**.
     st.subheader("Fit Distributions")
     if st.button("Run fitting (HH, SHOP, PV)"):
         if S.hh_df is None or S.shop_df is None or S.pv_perkwp is None or S.hours is None:
-            error_box("Please upload Households, Shops, PV JSON, and Zonal (for calendar) first. Monthly PUN is also required for simulation.")
+            error_box("Please upload Households, Shops, PV Excel, and Zonal (for calendar) first. Monthly PUN is also required for simulation.")
         else:
             with spinner_block("Fitting Households..."):
                 S.hh_fit, S.hh_diag = fit_households(S.hh_df)

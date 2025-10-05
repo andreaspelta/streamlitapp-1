@@ -5,6 +5,12 @@ from typing import Dict
 from .state import AppState
 from .io_utils import TZ
 
+
+def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
+    """Return timestamps formatted with timezone offset for CSV/Excel templates."""
+
+    return idx.strftime("%Y-%m-%d %H:%M:%S%z")
+
 def build_household_template(start="2022-01-01 00:30", end="2023-01-01 00:00") -> bytes:
     """Create a 15-minute household template workbook for 2022."""
 
@@ -19,6 +25,77 @@ def build_household_template(start="2022-01-01 00:30", end="2023-01-01 00:00") -
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
         df.to_excel(xl, sheet_name="HH01", index=False)
     return out.getvalue()
+
+
+def build_shop_template(
+    start="2022-09-15 00:00", end="2023-09-15 00:00", sheets: int = 20
+) -> bytes:
+    """Create a 15-minute small shops template spanning one year across multiple sheets."""
+
+    rng = pd.date_range(start=start, end=end, freq="15min", tz=TZ, inclusive="left")
+    df = pd.DataFrame(
+        {
+            "timestamp": _format_timestamp_index(rng),
+            "ActiveEnergy_Generale": np.nan,
+        }
+    )
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        for sheet_idx in range(1, sheets + 1):
+            sheet_name = f"Shop{sheet_idx:02d}"
+            df.to_excel(xl, sheet_name=sheet_name, index=False)
+    return out.getvalue()
+
+
+def build_pv_excel_template(
+    start="2018-01-01 00:30", end="2023-12-31 23:30"
+) -> bytes:
+    """Create an Excel template for PV per-kWp hourly data."""
+
+    rng = pd.date_range(start=start, end=end, freq="h", tz=TZ)
+    df = pd.DataFrame(
+        {
+            "timestamp": _format_timestamp_index(rng),
+            "energy_kWh_per_kWp": np.nan,
+        }
+    )
+
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        df.to_excel(xl, sheet_name="PV_per_kWp", index=False)
+    return out.getvalue()
+
+
+def build_zonal_price_template(year: int) -> bytes:
+    """Create an hourly zonal price CSV template for the selected year."""
+
+    start = pd.Timestamp(f"{year}-01-01 00:00", tz=TZ)
+    end = pd.Timestamp(f"{year + 1}-01-01 00:00", tz=TZ)
+    rng = pd.date_range(start=start, end=end, freq="h", inclusive="left")
+    df = pd.DataFrame(
+        {
+            "timestamp": _format_timestamp_index(rng),
+            "zonal_price (EUR_per_MWh)": np.nan,
+        }
+    )
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def build_pun_monthly_template(year: int) -> bytes:
+    """Create a monthly PUN CSV template for the selected year."""
+
+    rng = pd.date_range(
+        start=pd.Timestamp(f"{year}-01-01 00:00", tz=TZ),
+        end=pd.Timestamp(f"{year}-12-01 00:00", tz=TZ),
+        freq="MS",
+    )
+    df = pd.DataFrame(
+        {
+            "timestamp": _format_timestamp_index(rng),
+            "PUN (EUR_per_kWh)": np.nan,
+        }
+    )
+    return df.to_csv(index=False).encode("utf-8")
     
 def build_calibration_workbook_hh(S: AppState) -> bytes:
     out = io.BytesIO()
