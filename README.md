@@ -22,7 +22,7 @@ This repository hosts a complete Streamlit app that models a **Virtual Energy Co
 - Upload:
   - Households.xlsx (one sheet per household, 15-min kW → app converts to hourly kWh)
   - SmallShops.xlsx (one sheet per shop, 15-min kWh column `ActiveEnergy_Generale`)
-  - PV.json (per-kWp hourly kWh)
+  - PV.xlsx (hourly per-kWp kWh; download the preformatted template from the Upload & Fit page, covering 1 Jan 2018 00:30 to 31 Dec 2023 23:30)
   - zonal.csv (timestamp, `zonal_price (EUR_per_MWh)`), PUN_monthly.csv (timestamp, `PUN (EUR_per_kWh)`)
 - Click **Run fitting**. You’ll see parameter tables and diagnostics (histograms + QQ).
 
