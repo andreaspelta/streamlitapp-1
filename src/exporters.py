@@ -48,6 +48,23 @@ def build_shop_template(
     return out.getvalue()
 
 
+def build_pv_excel_template(
+    start="2018-01-01 00:30", end="2023-12-31 23:30"
+) -> bytes:
+    """Create an Excel template for PV per-kWp hourly data."""
+
+    rng = pd.date_range(start=start, end=end, freq="h", tz=TZ)
+    df = pd.DataFrame(
+        {
+            "timestamp": _format_timestamp_index(rng),
+            "energy_kWh_per_kWp": np.nan,
+        }
+    )
+
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        df.to_excel(xl, sheet_name="PV_per_kWp", index=False)
+    return out.getvalue()
 def build_pv_json_template(
     start="2018-01-01 18:10", end="2023-12-31 23:10"
 ) -> bytes:
