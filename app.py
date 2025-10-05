@@ -19,6 +19,7 @@ from src.exporters import (
     build_calibration_workbook_pv, export_kpi_quantiles, export_kpi_samples,
     export_all_in_one_xlsx, export_hourly_facts, build_household_template,
     build_shop_template, build_pv_excel_template, build_zonal_price_template,
+    build_shop_template, build_pv_json_template, build_zonal_price_template,
     build_pun_monthly_template,
 )
 
@@ -79,6 +80,15 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             help="Hourly timestamps (Europe/Rome) from 1 Jan 2018 00:30 to 31 Dec 2023 23:30.",
         )
         pv_file = st.file_uploader("PV.xlsx", type=["xlsx"])
+    with st.expander("Upload — Prosumer PV (JSON: per-kWp hourly kWh)", expanded=True):
+        st.download_button(
+            "Download PV JSON template (hourly, 2018-2023)",
+            build_pv_json_template(),
+            file_name="pv_template.json",
+            mime="application/json",
+            help="Hourly timestamps (Europe/Rome) from 1 Jan 2018 18:10 to 31 Dec 2023 23:10.",
+        )
+        pv_file = st.file_uploader("PV.json", type=["json"])
         if pv_file:
             with spinner_block("Reading PV Excel..."):
                 S.pv_perkwp = read_pv_excel(pv_file)

@@ -1,4 +1,5 @@
 import io
+import json
 import pandas as pd
 import numpy as np
 from typing import Dict
@@ -64,6 +65,18 @@ def build_pv_excel_template(
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
         df.to_excel(xl, sheet_name="PV_per_kWp", index=False)
     return out.getvalue()
+def build_pv_json_template(
+    start="2018-01-01 18:10", end="2023-12-31 23:10"
+) -> bytes:
+    """Create a JSON template for PV per-kWp hourly data."""
+
+    rng = pd.date_range(start=start, end=end, freq="h", tz=TZ)
+    records = [
+        {"timestamp": ts.strftime("%Y-%m-%d %H:%M:%S%z"), "energy_kWh_per_kWp": None}
+        for ts in rng
+    ]
+    json_bytes = json.dumps({"records": records}, ensure_ascii=False, indent=2).encode("utf-8")
+    return json_bytes
 
 
 def build_zonal_price_template(year: int) -> bytes:
