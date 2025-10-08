@@ -12,6 +12,14 @@ def _to_positive_numeric(series: pd.Series) -> pd.Series:
     values = values.where(values > 0, np.nan)
     return values
 
+
+def _to_non_negative_numeric(series: pd.Series) -> pd.Series:
+    """Coerce a series to numeric, keeping zeros while dropping negatives."""
+
+    values = pd.to_numeric(series, errors="coerce")
+    values = values.where(values >= 0, np.nan)
+    return values
+
 TZ = "Europe/Rome"
 
 def _ensure_ts_local(df: pd.DataFrame, col="timestamp") -> pd.DataFrame:
@@ -129,7 +137,7 @@ def read_pv_excel(file: IO) -> pd.DataFrame:
         raise ValueError(f"[PV] Excel must contain columns: {', '.join(sorted(missing))}")
     df = df[["timestamp", "energy_kWh_per_kWp"]].rename(columns={"energy_kWh_per_kWp": "kWh_per_kWp"})
     df = _ensure_ts_local(df, "timestamp").sort_values("timestamp")
-    df["kWh_per_kWp"] = _to_positive_numeric(df["kWh_per_kWp"])
+    df["kWh_per_kWp"] = _to_non_negative_numeric(df["kWh_per_kWp"])
     df = df.dropna(subset=["kWh_per_kWp"])
     return df.reset_index(drop=True)
 

@@ -6,9 +6,9 @@ from .clustering import season_of
 
 def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
     df = pv_perkwp.copy()
-    df = df[df["kWh_per_kWp"].notna() & (df["kWh_per_kWp"] > 0)]
+    df = df[df["kWh_per_kWp"].notna()]
     if df.empty:
-        raise ValueError("No positive PV per-kWp hours available after filtering.")
+        raise ValueError("No PV per-kWp hours available after filtering.")
     df["season"] = df["timestamp"].apply(season_of)
     df["hour"] = df["timestamp"].dt.hour
     # Envelope per season
