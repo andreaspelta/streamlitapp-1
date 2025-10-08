@@ -22,6 +22,11 @@ def _fit_baseline_and_spreads(df: pd.DataFrame, id_col: str):
       sigma_resid: DataFrame index=cluster, columns=0..23 (σ_η(c,h))
       diag: dict with diagnostic frames
     """
+    df = df.copy()
+    df = df[df["kWh"].notna() & (df["kWh"] > 0)]
+    if df.empty:
+        raise ValueError(f"No positive hourly kWh values available for {id_col} after filtering.")
+
     df = _hourly_tables(df, id_col)
     # Daily totals per (id,date)
     daily = df.groupby([id_col, "date", "cluster"], as_index=False)["kWh"].sum().rename(columns={"kWh": "E_day"})
