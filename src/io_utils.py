@@ -4,6 +4,22 @@ from typing import IO
 
 from pandas.api import types as pdt
 
+
+def _to_positive_numeric(series: pd.Series) -> pd.Series:
+    """Coerce a series to numeric, keeping only strictly positive values."""
+
+    values = pd.to_numeric(series, errors="coerce")
+    values = values.where(values > 0, np.nan)
+    return values
+
+
+def _to_non_negative_numeric(series: pd.Series) -> pd.Series:
+    """Coerce a series to numeric, keeping zeros while dropping negatives."""
+
+    values = pd.to_numeric(series, errors="coerce")
+    values = values.where(values >= 0, np.nan)
+    return values
+
 TZ = "Europe/Rome"
 
 def _ensure_ts_local(df: pd.DataFrame, col="timestamp") -> pd.DataFrame:
@@ -70,12 +86,19 @@ def read_households_excel(file: IO) -> pd.DataFrame:
         pcol = power_cols[0]
         df = df[["timestamp", pcol]].rename(columns={pcol: "power_kW_15min"})
         df = _ensure_ts_local(df, "timestamp")
-        df["kWh"] = df["power_kW_15min"].astype(float) * 0.25
+        df["kWh_15"] = _to_positive_numeric(df["power_kW_15min"]) * 0.25
         df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
-        hourly = df.groupby("ts_h", as_index=False)["kWh"].sum().rename(columns={"ts_h": "timestamp"})
+        hourly = (
+            df.groupby("ts_h", as_index=False)["kWh_15"]
+            .sum(min_count=1)
+            .rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
+        )
+        hourly = hourly.dropna(subset=["kWh"])
+        hourly = hourly[hourly["kWh"] > 0]
         hourly["household_id"] = sheet
         recs.append(hourly[["timestamp", "household_id", "kWh"]])
-    return pd.concat(recs, ignore_index=True).sort_values(["timestamp", "household_id"])
+    out = pd.concat(recs, ignore_index=True)
+    return out.sort_values(["timestamp", "household_id"]).reset_index(drop=True)
 
 def read_shops_excel(file: IO) -> pd.DataFrame:
     x = pd.ExcelFile(file)
@@ -91,11 +114,19 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
         ecol = cands[0]
         df = df[["timestamp", ecol]].rename(columns={ecol: "kWh_15"})
         df = _ensure_ts_local(df, "timestamp")
+        df["kWh_15"] = _to_positive_numeric(df["kWh_15"])
         df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
-        hourly = df.groupby("ts_h", as_index=False)["kWh_15"].sum().rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
+        hourly = (
+            df.groupby("ts_h", as_index=False)["kWh_15"]
+            .sum(min_count=1)
+            .rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
+        )
+        hourly = hourly.dropna(subset=["kWh"])
+        hourly = hourly[hourly["kWh"] > 0]
         hourly["shop_id"] = sheet
         recs.append(hourly[["timestamp", "shop_id", "kWh"]])
-    return pd.concat(recs, ignore_index=True).sort_values(["timestamp", "shop_id"])
+    out = pd.concat(recs, ignore_index=True)
+    return out.sort_values(["timestamp", "shop_id"]).reset_index(drop=True)
 
 def read_pv_excel(file: IO) -> pd.DataFrame:
     df = pd.read_excel(file)
@@ -106,7 +137,9 @@ def read_pv_excel(file: IO) -> pd.DataFrame:
         raise ValueError(f"[PV] Excel must contain columns: {', '.join(sorted(missing))}")
     df = df[["timestamp", "energy_kWh_per_kWp"]].rename(columns={"energy_kWh_per_kWp": "kWh_per_kWp"})
     df = _ensure_ts_local(df, "timestamp").sort_values("timestamp")
-    return df
+    df["kWh_per_kWp"] = _to_non_negative_numeric(df["kWh_per_kWp"])
+    df = df.dropna(subset=["kWh_per_kWp"])
+    return df.reset_index(drop=True)
 
 def read_zonal_csv(file: IO) -> pd.DataFrame:
     df = pd.read_csv(file)
