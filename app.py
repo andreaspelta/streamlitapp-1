@@ -50,7 +50,7 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Pre-filled timestamp column from 1 Jan 2022 00:30 to 1 Jan 2023 00:00 (Europe/Rome).",
         )
-        st.markdown("**Modello di carico per le famiglie (HH)**")
+        st.markdown("**Households demand**")
         st.latex(r"E_{c,h,d} = \mu_{c,h} \cdot D_{c,d} \cdot e^{\eta_{c,h,d}}")
         with st.popover("ℹ️"):
             st.markdown(
@@ -75,12 +75,11 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="20 sheets pre-filled with timestamps every 15 minutes from 15 Sep 2022 to 15 Sep 2023.",
         )
-        st.markdown("**Modello di carico per i piccoli negozi (SHOP)**")
-        st.latex(r"K_{c,h,d} = I_{c,h} \cdot \mu_{c,h} \cdot D_{c,d} \cdot e^{\eta_{c,h,d}}")
+        st.markdown("**Small shops demand**")
+        st.latex(r"K_{c,h,d} = \mu_{c,h} \cdot D_{c,d} \cdot e^{\eta_{c,h,d}}")
         with st.popover("ℹ️"):
             st.markdown(
                 r"""
-                * **\(I_{c,h}\)** is a Bernoulli variable with probability \(1 - p_{0}(c,h)\) of being 1, capturing hours with zero demand.
                 * **\(\mu_{c,h}\)**, **\(D_{c,d}\)**, and **\(\eta_{c,h,d}\)** follow the same lognormal structure as households, with parameters estimated cluster by cluster from the uploaded data.
                 * The fitting recovers the median profile \(\mu_{c,h}\), daily log-scaler dispersion \(\sigma_{\ln D}(c)\), hourly residual spread \(\sigma_{\eta}(c,h)\), and off probability \(p_{0}(c,h)\) for every hour.
                 """
@@ -99,7 +98,7 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             help="Hourly timestamps (Europe/Rome) from 1 Jan 2018 00:30 to 31 Dec 2023 23:30.",
         )
-        st.markdown("**Modello di produzione FV per kWp**")
+        st.markdown("**Prosumer generation**")
         st.latex(r"G_{s,h,d} = kWp \cdot S_{s,h} \cdot M_{s,d} \cdot \rho_{s,h,d} \cdot e^{\epsilon_{s,h,d}}")
         with st.popover("ℹ️"):
             st.markdown(
