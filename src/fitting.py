@@ -2,7 +2,6 @@ import numpy as np
 import pandas as pd
 from typing import Tuple, Dict
 from .clustering import hh_shop_cluster
-from scipy import stats
 
 # ---------- HELPERS
 

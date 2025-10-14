@@ -1,10 +1,15 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import numpy as np
 
 from typing import Dict, List
+
 from .state import AppState
+
+
+def _px():
+    import plotly.express as px
+
+    return px
 
 class spinner_block:
     def __init__(self, msg): self.msg=msg
@@ -56,6 +61,7 @@ def show_calibration_tables(S: AppState):
 def show_histograms_and_qq(S: AppState):
     # HH lnD & resid
     if S.hh_diag:
+        px = _px()
         st.subheader("Households Diagnostics")
         lnD = S.hh_diag["lnD"]
         fig = px.histogram(lnD, x="lnD", color="cluster", nbins=50, title="HH ln D")
@@ -66,6 +72,7 @@ def show_histograms_and_qq(S: AppState):
         st.plotly_chart(fig2, use_container_width=True)
 
     if S.shop_diag:
+        px = _px()
         st.subheader("Shops Diagnostics")
         lnD = S.shop_diag["lnD"]
         fig = px.histogram(lnD, x="lnD", color="cluster", nbins=50, title="SHOP ln D")
@@ -76,6 +83,7 @@ def show_histograms_and_qq(S: AppState):
         st.plotly_chart(fig2, use_container_width=True)
 
     if S.pv_diag:
+        px = _px()
         st.subheader("PV Diagnostics")
         env = S.pv_diag["envelope"]
         fig = px.line(env.melt(id_vars="season", var_name="hour", value_name="S"),

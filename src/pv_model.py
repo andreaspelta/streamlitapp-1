@@ -1,8 +1,14 @@
 import numpy as np
 import pandas as pd
 from typing import Tuple, Dict
-from scipy import stats
+
 from .clustering import season_of
+
+
+def _fisk():
+    from scipy import stats
+
+    return stats.fisk
 
 def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
     df = pv_perkwp.copy()
@@ -34,7 +40,8 @@ def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
         med = np.median(Y) if np.isfinite(Y).any() else 1.0
         M = Y / (med if med > 0 else 1.0)
         # Fix loc=0 for stability
-        c, loc, scale = stats.fisk.fit(M, floc=0)
+        fisk = _fisk()
+        c, loc, scale = fisk.fit(M, floc=0)
         LL[s] = {"c": float(max(c, 0.1)), "scale": float(max(scale, 1e-6))}
 
     # Simple 2-state (Clear/Cloud) Markov estimated via threshold on daily totals
