@@ -1,6 +1,8 @@
-import pandas as pd
-import numpy as np
+import io
 from typing import IO
+
+import numpy as np
+import pandas as pd
 
 from pandas.api import types as pdt
 
@@ -21,6 +23,23 @@ def _to_non_negative_numeric(series: pd.Series) -> pd.Series:
     return values
 
 TZ = "Europe/Rome"
+
+
+def _reset_file_like(file: IO) -> IO:
+    """Return a seekable buffer for file-like uploads (Streamlit, Flask, etc.)."""
+
+    if hasattr(file, "seek"):
+        try:
+            file.seek(0)
+            return file
+        except (OSError, io.UnsupportedOperation):
+            pass
+
+    data = file.read()
+    if isinstance(data, (bytes, bytearray)):
+        return io.BytesIO(data)
+    return io.BytesIO(bytes(data))
+
 
 def _ensure_ts_local(df: pd.DataFrame, col="timestamp") -> pd.DataFrame:
     """Ensure a timestamp column is timezone-aware in Europe/Rome.
@@ -73,63 +92,78 @@ def _ensure_ts_local(df: pd.DataFrame, col="timestamp") -> pd.DataFrame:
     return df
 
 def read_households_excel(file: IO) -> pd.DataFrame:
-    x = pd.ExcelFile(file)
-    recs = []
-    for sheet in x.sheet_names:
-        df = x.parse(sheet)
+    buffer = _reset_file_like(file)
+    xls = pd.ExcelFile(buffer)
+    frames = []
+
+    for sheet in xls.sheet_names:
+        df = xls.parse(sheet)
         df.columns = [c.strip() for c in df.columns]
         if "timestamp" not in df.columns:
             raise ValueError(f"[HH] Missing 'timestamp' in sheet {sheet}")
-        power_cols = [c for c in df.columns if c.lower().startswith("power") or "kW" in c]
+        power_cols = [c for c in df.columns if c.lower().startswith("power") or "kw" in c.lower()]
         if not power_cols:
             raise ValueError(f"[HH] Missing power (kW) column in sheet {sheet}")
         pcol = power_cols[0]
         df = df[["timestamp", pcol]].rename(columns={pcol: "power_kW_15min"})
-        df = _ensure_ts_local(df, "timestamp")
-        df["kWh_15"] = _to_positive_numeric(df["power_kW_15min"]) * 0.25
-        df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
-        hourly = (
-            df.groupby("ts_h", as_index=False)["kWh_15"]
-            .sum(min_count=1)
-            .rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
-        )
-        hourly = hourly.dropna(subset=["kWh"])
-        hourly = hourly[hourly["kWh"] > 0]
-        hourly["household_id"] = sheet
-        recs.append(hourly[["timestamp", "household_id", "kWh"]])
-    out = pd.concat(recs, ignore_index=True)
-    return out.sort_values(["timestamp", "household_id"]).reset_index(drop=True)
+        df["household_id"] = sheet
+        frames.append(df)
+
+    if not frames:
+        raise ValueError("[HH] Excel workbook is empty")
+
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all = _ensure_ts_local(df_all, "timestamp")
+    df_all["kWh_15"] = _to_positive_numeric(df_all["power_kW_15min"]) * 0.25
+    df_all = df_all.dropna(subset=["kWh_15"])
+    df_all["timestamp"] = df_all["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
+
+    hourly = (
+        df_all.groupby(["timestamp", "household_id"], as_index=False)["kWh_15"]
+        .sum(min_count=1)
+        .rename(columns={"kWh_15": "kWh"})
+    )
+    hourly = hourly[hourly["kWh"] > 0]
+    return hourly.sort_values(["timestamp", "household_id"]).reset_index(drop=True)
 
 def read_shops_excel(file: IO) -> pd.DataFrame:
-    x = pd.ExcelFile(file)
-    recs = []
-    for sheet in x.sheet_names:
-        df = x.parse(sheet)
+    buffer = _reset_file_like(file)
+    xls = pd.ExcelFile(buffer)
+    frames = []
+
+    for sheet in xls.sheet_names:
+        df = xls.parse(sheet)
         df.columns = [c.strip() for c in df.columns]
         if "timestamp" not in df.columns:
             raise ValueError(f"[SHOP] Missing 'timestamp' in sheet {sheet}")
-        cands = [c for c in df.columns if c.lower() == "activeenergy_generale".lower()]
+        cands = [c for c in df.columns if c.strip().lower() == "activeenergy_generale"]
         if not cands:
             raise ValueError(f"[SHOP] Missing 'ActiveEnergy_Generale' in sheet {sheet}")
         ecol = cands[0]
         df = df[["timestamp", ecol]].rename(columns={ecol: "kWh_15"})
-        df = _ensure_ts_local(df, "timestamp")
-        df["kWh_15"] = _to_positive_numeric(df["kWh_15"])
-        df["ts_h"] = df["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
-        hourly = (
-            df.groupby("ts_h", as_index=False)["kWh_15"]
-            .sum(min_count=1)
-            .rename(columns={"ts_h": "timestamp", "kWh_15": "kWh"})
-        )
-        hourly = hourly.dropna(subset=["kWh"])
-        hourly = hourly[hourly["kWh"] > 0]
-        hourly["shop_id"] = sheet
-        recs.append(hourly[["timestamp", "shop_id", "kWh"]])
-    out = pd.concat(recs, ignore_index=True)
-    return out.sort_values(["timestamp", "shop_id"]).reset_index(drop=True)
+        df["shop_id"] = sheet
+        frames.append(df)
+
+    if not frames:
+        raise ValueError("[SHOP] Excel workbook is empty")
+
+    df_all = pd.concat(frames, ignore_index=True)
+    df_all = _ensure_ts_local(df_all, "timestamp")
+    df_all["kWh_15"] = _to_positive_numeric(df_all["kWh_15"])
+    df_all = df_all.dropna(subset=["kWh_15"])
+    df_all["timestamp"] = df_all["timestamp"].dt.tz_convert("UTC").dt.floor("h").dt.tz_convert(TZ)
+
+    hourly = (
+        df_all.groupby(["timestamp", "shop_id"], as_index=False)["kWh_15"]
+        .sum(min_count=1)
+        .rename(columns={"kWh_15": "kWh"})
+    )
+    hourly = hourly[hourly["kWh"] > 0]
+    return hourly.sort_values(["timestamp", "shop_id"]).reset_index(drop=True)
 
 def read_pv_excel(file: IO) -> pd.DataFrame:
-    df = pd.read_excel(file)
+    buffer = _reset_file_like(file)
+    df = pd.read_excel(buffer)
     df.columns = [c.strip() for c in df.columns]
     required_cols = {"timestamp", "energy_kWh_per_kWp"}
     if not required_cols.issubset(df.columns):
@@ -142,7 +176,8 @@ def read_pv_excel(file: IO) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 def read_zonal_csv(file: IO) -> pd.DataFrame:
-    df = pd.read_csv(file)
+    buffer = _reset_file_like(file)
+    df = pd.read_csv(buffer, engine="pyarrow")
     if "timestamp" not in df.columns:
         raise ValueError("[ZONAL] Missing 'timestamp' column")
     # Accept 'zonal_price' or 'zonal_price (EUR_per_MWh)'
@@ -161,7 +196,8 @@ def read_pun_monthly_csv(file: IO) -> pd.DataFrame:
       - timestamp: any date within the month (e.g., '2024-01-01' ... '2024-12-01')
       - PUN (EUR_per_kWh): numeric
     """
-    df = pd.read_csv(file)
+    buffer = _reset_file_like(file)
+    df = pd.read_csv(buffer, engine="pyarrow")
     if "timestamp" not in df.columns:
         raise ValueError("[PUN] Missing 'timestamp' column")
     # Accept 'PUN (EUR_per_kWh)' or 'PUN' or 'pun_eur_per_kwh'

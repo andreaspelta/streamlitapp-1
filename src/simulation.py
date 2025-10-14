@@ -1,90 +1,250 @@
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Any
+from typing import Dict, Any
+
 from .clustering import hh_shop_cluster, season_of
-from scipy import stats
 
-# ---------- Sampling helpers (unchanged) ----------
-def sample_hh_like(hours: pd.DatetimeIndex, fit: Dict, rng: np.random.Generator) -> np.ndarray:
-    clusters = pd.Series([hh_shop_cluster(ts) for ts in hours], index=hours)
-    hours_of_day = pd.Series([ts.hour for ts in hours], index=hours)
 
-    mu = fit["mu"]; s_lnD = fit["sigma_lnD"]; s_res = fit["sigma_resid"]
-    dates = pd.Series([ts.date() for ts in hours], index=hours)
-    days = pd.unique(dates)
-    day_cluster = pd.Series([hh_shop_cluster(pd.Timestamp(str(d))) for d in days], index=days)
-    lnD = {d: rng.normal(loc=0.0, scale=float(s_lnD.get(day_cluster[d], 0.25))) for d in days}
-    lnD = pd.Series(lnD)
+def _prepare_hour_cache(hours: pd.DatetimeIndex) -> Dict[str, Any]:
+    hour_idx = hours.hour.to_numpy(dtype=int)
+    day_codes, unique_days = pd.factorize(hours.normalize(), sort=False)
+    clusters = np.array([hh_shop_cluster(ts) for ts in hours], dtype=object)
+    day_clusters = np.array([hh_shop_cluster(ts) for ts in unique_days], dtype=object)
+    seasons = np.array([season_of(ts) for ts in hours], dtype=object)
+    day_seasons = np.array([season_of(ts) for ts in unique_days], dtype=object)
+    return dict(
+        hours=hours,
+        hour_idx=hour_idx,
+        day_codes=day_codes,
+        days=unique_days,
+        clusters=clusters,
+        day_clusters=day_clusters,
+        seasons=seasons,
+        day_seasons=day_seasons,
+        n_hours=len(hours),
+        n_days=len(unique_days),
+    )
 
-    out = []
-    for ts in hours:
-        c = clusters[ts]; h = int(hours_of_day[ts])
-        mu_ch = float(mu.loc[c, h]) if (c in mu.index and h in mu.columns) else 0.0
-        s = float(s_res.loc[c, h]) if (c in s_res.index and h in s_res.columns) else 0.25
-        D = float(np.exp(lnD[ts.date()]))
-        e = rng.normal(scale=s)
-        out.append(max(0.0, mu_ch * D * np.exp(e)))
-    return np.array(out, dtype=float)
 
-def sample_shop_like(hours: pd.DatetimeIndex, fit: Dict, rng: np.random.Generator) -> np.ndarray:
-    clusters = pd.Series([hh_shop_cluster(ts) for ts in hours], index=hours)
-    hours_of_day = pd.Series([ts.hour for ts in hours], index=hours)
-    mu = fit["mu"]; s_lnD = fit["sigma_lnD"]; s_res = fit["sigma_resid"]; p0 = fit["p_zero"]
-    dates = pd.Series([ts.date() for ts in hours], index=hours)
-    days = pd.unique(dates)
-    day_cluster = pd.Series([hh_shop_cluster(pd.Timestamp(str(d))) for d in days], index=days)
-    lnD = {d: rng.normal(loc=0.0, scale=float(s_lnD.get(day_cluster[d], 0.25))) for d in days}
-    lnD = pd.Series(lnD)
+def _build_cluster_index(fit: Dict, hour_cache: Dict[str, Any]) -> pd.Index:
+    sources = [
+        hour_cache["clusters"],
+        hour_cache["day_clusters"],
+        getattr(fit.get("mu", pd.DataFrame()), "index", []),
+        getattr(fit.get("sigma_resid", pd.DataFrame()), "index", []),
+    ]
+    sigma_lnD = fit.get("sigma_lnD", {})
+    if isinstance(sigma_lnD, (pd.Series, pd.DataFrame)):
+        sources.append(getattr(sigma_lnD, "index", []))
+    else:
+        sources.append(list(sigma_lnD.keys()))
+    if "p_zero" in fit:
+        sources.append(getattr(fit.get("p_zero", pd.DataFrame()), "index", []))
+    flat = set()
+    for src in sources:
+        flat.update([str(x) if isinstance(x, pd.Interval) else x for x in pd.Index(src, dtype=object)])
+    return pd.Index(sorted(flat), dtype=object)
 
-    out = []
-    for ts in hours:
-        c = clusters[ts]; h = int(hours_of_day[ts])
-        pz = float(p0.loc[c, h]) if (c in p0.index and h in p0.columns) else 0.0
-        if rng.uniform() < pz:
-            out.append(0.0); continue
-        mu_ch = float(mu.loc[c, h]) if (c in mu.index and h in mu.columns) else 0.0
-        s = float(s_res.loc[c, h]) if (c in s_res.index and h in s_res.columns) else 0.25
-        D = float(np.exp(lnD[ts.date()])) ; e = rng.normal(scale=s)
-        out.append(max(0.0, mu_ch * D * np.exp(e)))
-    return np.array(out, dtype=float)
 
-def sample_pv(hours: pd.DatetimeIndex, pv_fit: Dict, kWp: float, rng: np.random.Generator) -> np.ndarray:
-    S = pv_fit["S"]; LL = pv_fit["loglogistic"]; MK = pv_fit["markov"]
-    seasons = pd.Series([season_of(ts) for ts in hours], index=hours)
-    dates = pd.Series([ts.date() for ts in hours], index=hours)
-    uniq_dates = pd.unique(dates)
-    day_state = {}
-    M_day = {}
-    prev_state = {}
-    for d in uniq_dates:
-        s = season_of(pd.Timestamp(str(d)))
-        P = np.array(MK.get(s, {}).get("P", [[0.7, 0.3], [0.3, 0.7]]), dtype=float)
-        if s not in prev_state:
+def _reindex_hour_matrix(df: pd.DataFrame, index: pd.Index, default: float) -> np.ndarray:
+    if df is None:
+        df = pd.DataFrame()
+    cols = pd.Index(range(24), dtype=int)
+    return (
+        df.reindex(index=index, columns=cols)
+        .fillna(default)
+        .to_numpy(dtype=float)
+    )
+
+
+def _prep_hh_shop_template(fit: Dict, hour_cache: Dict[str, Any]) -> Dict[str, np.ndarray]:
+    cluster_index = _build_cluster_index(fit, hour_cache)
+    cluster_codes = pd.Categorical(hour_cache["clusters"], categories=cluster_index).codes
+    day_cluster_codes = pd.Categorical(hour_cache["day_clusters"], categories=cluster_index).codes
+    mu_matrix = _reindex_hour_matrix(fit.get("mu"), cluster_index, 0.0)
+    sigma_res_matrix = _reindex_hour_matrix(fit.get("sigma_resid"), cluster_index, 0.25)
+    sigma_lnD = fit.get("sigma_lnD", {})
+    if isinstance(sigma_lnD, pd.Series):
+        sigma_lnD_series = sigma_lnD
+    elif isinstance(sigma_lnD, pd.DataFrame):
+        sigma_lnD_series = sigma_lnD.iloc[:, 0]
+    else:
+        sigma_lnD_series = pd.Series(sigma_lnD)
+    sigma_lnD_vals = (
+        sigma_lnD_series.reindex(cluster_index)
+        .fillna(0.25)
+        .to_numpy(dtype=float)
+    )
+    mu_hour = mu_matrix[cluster_codes, hour_cache["hour_idx"]]
+    sigma_res_hour = sigma_res_matrix[cluster_codes, hour_cache["hour_idx"]]
+    sigma_lnD_day = sigma_lnD_vals[day_cluster_codes]
+    return dict(
+        mu_hour=mu_hour,
+        sigma_res_hour=sigma_res_hour,
+        sigma_lnD_day=sigma_lnD_day,
+        cluster_index=cluster_index,
+    )
+
+
+def _prep_shop_template(fit: Dict, hour_cache: Dict[str, Any]) -> Dict[str, np.ndarray]:
+    base = _prep_hh_shop_template(fit, hour_cache)
+    cluster_index = base["cluster_index"]
+    p_zero_matrix = _reindex_hour_matrix(fit.get("p_zero"), cluster_index, 0.0)
+    cluster_codes = pd.Categorical(hour_cache["clusters"], categories=cluster_index).codes
+    p_zero_hour = p_zero_matrix[cluster_codes, hour_cache["hour_idx"]]
+    base["p_zero_hour"] = p_zero_hour
+    return base
+
+
+def _prep_pv_template(pv_fit: Dict, hour_cache: Dict[str, Any]) -> Dict[str, Any]:
+    season_index = pd.Index(
+        sorted(
+            set(hour_cache["seasons"]) | set(getattr(pv_fit.get("S", pd.DataFrame()), "index", []))
+        )
+    )
+    S = pv_fit.get("S", pd.DataFrame())
+    S_matrix = _reindex_hour_matrix(S, season_index, 0.0)
+    season_codes = pd.Categorical(hour_cache["seasons"], categories=season_index).codes
+    day_season_codes = pd.Categorical(hour_cache["day_seasons"], categories=season_index).codes
+    base_hour = S_matrix[season_codes, hour_cache["hour_idx"]]
+
+    MK = pv_fit.get("markov", {})
+    P_default = np.array([[0.7, 0.3], [0.3, 0.7]], dtype=float)
+    beta_default = {"alpha": 5.0, "beta": 5.0}
+    P_mats = []
+    alpha_vals = []
+    beta_vals = []
+    for s in season_index:
+        mk = MK.get(s, {})
+        P = np.array(mk.get("P", P_default), dtype=float)
+        if P.shape != (2, 2):
+            P = P_default
+        P_mats.append(P)
+        beta = mk.get("beta", beta_default)
+        alpha_vals.append(max(float(beta.get("alpha", 5.0)), 0.5))
+        beta_vals.append(max(float(beta.get("beta", 5.0)), 0.5))
+    P_mats = np.stack(P_mats, axis=0) if P_mats else np.zeros((0, 2, 2))
+    alpha_vals = np.array(alpha_vals, dtype=float)
+    beta_vals = np.array(beta_vals, dtype=float)
+    alpha_hour = alpha_vals[season_codes]
+    beta_hour = beta_vals[season_codes]
+
+    LL = pv_fit.get("loglogistic", {})
+    c_vals = []
+    scale_vals = []
+    for s in season_index:
+        pars = LL.get(s, {"c": 2.0, "scale": 1.0})
+        c_vals.append(max(float(pars.get("c", 2.0)), 0.1))
+        scale_vals.append(max(float(pars.get("scale", 1.0)), 1e-6))
+    c_vals = np.array(c_vals, dtype=float)
+    scale_vals = np.array(scale_vals, dtype=float)
+    c_day = c_vals[day_season_codes]
+    scale_day = scale_vals[day_season_codes]
+
+    return dict(
+        base_hour=base_hour,
+        alpha_hour=alpha_hour,
+        beta_hour=beta_hour,
+        P_mats=P_mats,
+        day_season_codes=day_season_codes,
+        c_day=c_day,
+        scale_day=scale_day,
+        season_index=season_index,
+    )
+
+
+def _sample_loglogistic(rng: np.random.Generator, shape: float, scale: float) -> float:
+    shape = max(shape, 1e-6)
+    scale = max(scale, 1e-12)
+    u = rng.uniform()
+    u = np.clip(u, 1e-9, 1 - 1e-9)
+    return scale * np.power(u / (1.0 - u), 1.0 / shape)
+
+
+def _sample_hh_like_cached(hour_cache: Dict[str, Any], template: Dict[str, np.ndarray], rng: np.random.Generator, size: int) -> np.ndarray:
+    n_hours = hour_cache["n_hours"]
+    if size <= 0:
+        return np.zeros((0, n_hours), dtype=float)
+    mu_hour = template["mu_hour"]
+    sigma_res_hour = template["sigma_res_hour"]
+    sigma_lnD_day = template["sigma_lnD_day"]
+    lnD_day = rng.normal(loc=0.0, scale=sigma_lnD_day, size=(size, hour_cache["n_days"]))
+    lnD_hour = lnD_day[:, hour_cache["day_codes"]]
+    eps = rng.normal(loc=0.0, scale=sigma_res_hour, size=(size, n_hours))
+    samples = mu_hour * np.exp(lnD_hour + eps)
+    np.maximum(samples, 0.0, out=samples)
+    return samples
+
+
+def _sample_shop_like_cached(hour_cache: Dict[str, Any], template: Dict[str, np.ndarray], rng: np.random.Generator, size: int) -> np.ndarray:
+    draws = _sample_hh_like_cached(hour_cache, template, rng, size)
+    if size <= 0:
+        return draws
+    p_zero_hour = template.get("p_zero_hour")
+    if p_zero_hour is not None:
+        mask = rng.uniform(size=draws.shape) < p_zero_hour
+        draws[mask] = 0.0
+    return draws
+
+
+def _sample_pv_cached(hour_cache: Dict[str, Any], template: Dict[str, Any], kWp: float, rng: np.random.Generator) -> np.ndarray:
+    if kWp <= 0:
+        return np.zeros(hour_cache["n_hours"], dtype=float)
+    base_hour = template["base_hour"]
+    alpha_hour = template["alpha_hour"]
+    beta_hour = template["beta_hour"]
+    day_codes = hour_cache["day_codes"]
+    P_mats = template["P_mats"]
+    day_season_codes = template["day_season_codes"]
+    c_day = template["c_day"]
+    scale_day = template["scale_day"]
+
+    prev_state = np.full(len(template["season_index"]), -1, dtype=int)
+    M_day = np.empty(hour_cache["n_days"], dtype=float)
+    default_P = np.array([[0.7, 0.3], [0.3, 0.7]], dtype=float)
+    for d_idx, season_code in enumerate(day_season_codes):
+        idx = season_code if 0 <= season_code < len(P_mats) else -1
+        P = P_mats[idx] if idx >= 0 else default_P
+        state_slot = idx if idx >= 0 else 0
+        if state_slot >= len(prev_state):
+            prev_state = np.pad(prev_state, (0, state_slot - len(prev_state) + 1), constant_values=-1)
+        if prev_state[state_slot] < 0:
             p01 = P[0, 1]
             p10 = P[1, 0]
             denom = p01 + p10
             pi_clear = p10 / denom if denom > 0 else 0.5
             stt = 1 if rng.random() < pi_clear else 0
         else:
-            stt = 1 if rng.random() < P[int(prev_state[s]), 1] else 0
-        prev_state[s] = stt
-        day_state[d] = stt
-        pars = LL.get(s, {"c":2.0,"scale":1.0})
-        c = max(float(pars.get("c",2.0)), 0.1)
-        sc = max(float(pars.get("scale",1.0)), 1e-6)
-        M_day[d] = stats.fisk.rvs(c, loc=0, scale=sc, random_state=rng)
-    out = []
-    for ts in hours:
-        s = seasons[ts]; h = ts.hour
-        base = float(S.loc[s, h]) if (s in S.index and h in S.columns) else 0.0
-        d = ts.date()
-        beta = MK.get(s, {}).get("beta", {"alpha":5.0,"beta":5.0})
-        a = max(float(beta.get("alpha",5.0)), 0.5); b = max(float(beta.get("beta",5.0)), 0.5)
-        cl = rng.beta(a, b)
-        eps = rng.normal(scale=0.1)
-        per_kwp = base * M_day[d] * cl * np.exp(eps)
-        out.append(max(0.0, kWp * per_kwp))
-    return np.array(out, dtype=float)
+            stt = 1 if rng.random() < P[prev_state[state_slot], 1] else 0
+        prev_state[state_slot] = stt
+        M_day[d_idx] = _sample_loglogistic(rng, c_day[d_idx], scale_day[d_idx])
+
+    cl = rng.beta(alpha_hour, beta_hour)
+    eps = rng.normal(loc=0.0, scale=0.1, size=hour_cache["n_hours"])
+    per_kwp = base_hour * M_day[day_codes] * cl * np.exp(eps)
+    out = kWp * per_kwp
+    np.maximum(out, 0.0, out=out)
+    return out
+
+
+# Backwards compatible wrappers -------------------------------------------------
+
+def sample_hh_like(hours: pd.DatetimeIndex, fit: Dict, rng: np.random.Generator) -> np.ndarray:
+    hour_cache = _prepare_hour_cache(hours)
+    template = _prep_hh_shop_template(fit or {}, hour_cache)
+    return _sample_hh_like_cached(hour_cache, template, rng, 1)[0]
+
+
+def sample_shop_like(hours: pd.DatetimeIndex, fit: Dict, rng: np.random.Generator) -> np.ndarray:
+    hour_cache = _prepare_hour_cache(hours)
+    template = _prep_shop_template(fit or {}, hour_cache)
+    return _sample_shop_like_cached(hour_cache, template, rng, 1)[0]
+
+
+def sample_pv(hours: pd.DatetimeIndex, pv_fit: Dict, kWp: float, rng: np.random.Generator) -> np.ndarray:
+    hour_cache = _prepare_hour_cache(hours)
+    template = _prep_pv_template(pv_fit or {}, hour_cache)
+    return _sample_pv_cached(hour_cache, template, kWp, rng)
 
 # ---------- Matching ----------
 def equal_level_fill(supply: float, demands: np.ndarray) -> (np.ndarray, float):
@@ -133,12 +293,27 @@ def run_monte_carlo(
 ) -> Dict[str, Any]:
 
     rng = np.random.default_rng(seed)
-    # Align hourly price frames
-    z = zonal.set_index("timestamp").reindex(hours)["zonal_price (EUR_per_MWh)"].ffill()
-    p = pun_hourly_kwh.set_index("timestamp").reindex(hours)["PUN (EUR_per_KWh)".replace("KWh","kWh")].ffill()
-    price_df = pd.DataFrame({"timestamp": hours, "zonal": z.values, "pun_kwh": p.values})
+    hour_cache = _prepare_hour_cache(hours)
 
+    # Align hourly price frames once and expose as NumPy arrays (avoids iterrows overhead)
+    zonal_series = zonal.set_index("timestamp").reindex(hour_cache["hours"])["zonal_price (EUR_per_MWh)"].ffill()
+    pun_col = "PUN (EUR_per_KWh)".replace("KWh", "kWh")
+    pun_series = pun_hourly_kwh.set_index("timestamp").reindex(hour_cache["hours"])[pun_col].ffill()
+    zonal_prices = zonal_series.to_numpy(dtype=float)
+    pun_prices = pun_series.to_numpy(dtype=float)
+
+    n_hours = hour_cache["n_hours"]
     nP = len(prosumer_ids); nH = len(hh_ids); nK = len(shop_ids)
+
+    hh_index = {hid: idx for idx, hid in enumerate(hh_ids)}
+    mapping_idx = [
+        np.array([hh_index[h] for h in mapping.get(pid, []) if h in hh_index], dtype=int)
+        for pid in prosumer_ids
+    ]
+
+    hh_template = _prep_hh_shop_template(hh_fit or {}, hour_cache)
+    shop_template = _prep_shop_template(shop_fit or {}, hour_cache) if nK else None
+    pv_template = _prep_pv_template(pv_fit or {}, hour_cache)
 
     matched_hh = np.zeros(S); matched_shop = np.zeros(S)
     import_hh = np.zeros(S); import_shop = np.zeros(S)
@@ -153,11 +328,13 @@ def run_monte_carlo(
     for sidx in range(S):
         r = np.random.default_rng(rng.integers(0, 2**32-1))
 
-        # >>> Key change: store as pandas Series indexed by 'hours'
-        pros_load = {pid: pd.Series(sample_hh_like(hours, hh_fit, r), index=hours) for pid in prosumer_ids}
-        pros_gen  = {pid: pd.Series(sample_pv(hours, pv_fit, float(kwp_map.get(pid, 0.0)), r), index=hours) for pid in prosumer_ids}
-        hh_load   = {hid: pd.Series(sample_hh_like(hours, hh_fit, r), index=hours) for hid in hh_ids}
-        shop_load = {kid: pd.Series(sample_shop_like(hours, shop_fit, r), index=hours) for kid in shop_ids}
+        pros_load = _sample_hh_like_cached(hour_cache, hh_template, r, nP) if nP else np.zeros((0, n_hours), dtype=float)
+        pros_gen = (
+            np.vstack([_sample_pv_cached(hour_cache, pv_template, float(kwp_map.get(pid, 0.0)), r) for pid in prosumer_ids])
+            if nP else np.zeros((0, n_hours), dtype=float)
+        )
+        hh_load = _sample_hh_like_cached(hour_cache, hh_template, r, nH) if nH else np.zeros((0, n_hours), dtype=float)
+        shop_load = _sample_shop_like_cached(hour_cache, shop_template, r, nK) if nK else np.zeros((0, n_hours), dtype=float)
 
         m_hh = 0.0; m_shop = 0.0
         imp_hh = 0.0; imp_shop = 0.0
@@ -165,13 +342,14 @@ def run_monte_carlo(
         rev = 0.0; cost = 0.0; gap_eur = 0.0
         pv_sum = 0.0; cons_sum = 0.0; base_cost = 0.0
 
-        for _, row in price_df.iterrows():
-            ts = row["timestamp"]; zon = float(row["zonal"]); pun_kwh = float(row["pun_kwh"])
+        for h_idx in range(n_hours):
+            zon = zonal_prices[h_idx]
+            pun_kwh = pun_prices[h_idx]
             layer = price_layer(zon, pun_kwh)
 
             # HH and SHOP demands at this hour (now timestamp-safe)
-            hh_full = np.array([hh_load[h].loc[ts] for h in hh_ids], dtype=float)
-            sh_full = np.array([shop_load[k].loc[ts] for k in shop_ids], dtype=float)
+            hh_full = hh_load[:, h_idx] if nH else np.zeros(0, dtype=float)
+            sh_full = shop_load[:, h_idx] if nK else np.zeros(0, dtype=float)
             U_hh = hh_full.copy()
             U_sh = sh_full.copy()
 
@@ -180,17 +358,16 @@ def run_monte_carlo(
 
             # Prosumer surpluses and self-consumption
             residuals = []
-            for pid in prosumer_ids:
-                L = float(pros_load[pid].loc[ts])
-                G = float(pros_gen[pid].loc[ts])
+            for p_idx, pid in enumerate(prosumer_ids):
+                L = float(pros_load[p_idx, h_idx]) if nP else 0.0
+                G = float(pros_gen[p_idx, h_idx]) if nP else 0.0
                 pv_sum += G
                 SC = min(L, G)  # self-consumption (not explicitly used in pricing layer above)
                 surplus = max(G - L, 0.0)
 
                 # Designated HH first (ELWF)
-                lst = mapping.get(pid, [])
-                if len(lst) > 0 and surplus > 0:
-                    idxs = [hh_ids.index(h) for h in lst if h in hh_ids]
+                idxs = mapping_idx[p_idx] if p_idx < len(mapping_idx) else None
+                if idxs is not None and idxs.size > 0 and surplus > 0 and nH:
                     need = U_hh[idxs].copy()
                     taken = 0.0
                     if need.size:

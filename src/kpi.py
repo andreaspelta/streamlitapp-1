@@ -1,9 +1,16 @@
 import numpy as np
 import pandas as pd
 import streamlit as st
-import plotly.express as px
+
 from typing import Dict, Any
+
 from .state import AppState
+
+
+def _px():
+    import plotly.express as px
+
+    return px
 
 def _stats(x: np.ndarray) -> Dict[str, float]:
     x = np.asarray(x, dtype=float)
@@ -86,6 +93,7 @@ def render_kpi_dashboard(S: AppState):
     med = summary.set_index("KPI")["p50"]
     keep = [x for x in ["Coverage — total","PV utilization","Autarky — total","Consumer savings (%)"] if x in med.index]
     if keep:
+        px = _px()
         fig = px.bar(med[keep], title="Headline medians")
         st.plotly_chart(fig, use_container_width=True)
 
