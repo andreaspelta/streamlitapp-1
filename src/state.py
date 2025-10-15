@@ -13,6 +13,11 @@ class AppState:
     pun_m: Optional[pd.DataFrame] = None   # monthly PUN €/kWh
     pun_h: Optional[pd.DataFrame] = None   # hourly PUN €/kWh (expanded)
     hours: Optional[pd.DatetimeIndex] = None
+    hh_file_digest: Optional[str] = None
+    shop_file_digest: Optional[str] = None
+    pv_file_digest: Optional[str] = None
+    zonal_file_digest: Optional[str] = None
+    pun_file_digest: Optional[str] = None
 
     # Fits
     hh_fit: Optional[dict] = None
