@@ -33,11 +33,14 @@ def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
     daily = df.groupby(["season", "date"])["kWh_per_kWp"].sum().reset_index()
     diag = {"daily_totals": daily.copy()}
 
+    seasonal_medians = {}
+
     # For each season, fit log-logistic (Fisk) to normalized M_d
     LL = {}
     for s, grp in daily.groupby("season"):
         Y = grp["kWh_per_kWp"].values
         med = np.median(Y) if np.isfinite(Y).any() else 1.0
+        seasonal_medians[s] = float(med)
         M = Y / (med if med > 0 else 1.0)
         # Fix loc=0 for stability
         fisk = _fisk()
@@ -89,8 +92,14 @@ def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
             b = max((1-m)*common, 0.5)
         markov[s] = {"P": P.tolist(), "beta": {"alpha": float(a), "beta": float(b)}}
 
-    fit = {"S": S, "loglogistic": LL, "markov": markov}
+    fit = {"S": S, "loglogistic": LL, "markov": markov, "daily_median_M": seasonal_medians}
     diag["envelope"] = S.reset_index()
     diag["LL"] = LL
     diag["markov"] = markov
+    diag["daily_median_M"] = pd.DataFrame(
+        [
+            {"season": season, "median_kWh_per_kWp": value}
+            for season, value in seasonal_medians.items()
+        ]
+    )
     return fit, diag
