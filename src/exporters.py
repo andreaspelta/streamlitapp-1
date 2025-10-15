@@ -1,12 +1,13 @@
 import io
 from functools import lru_cache
-from typing import Dict
+from typing import Dict, Optional
 
 import numpy as np
 import pandas as pd
 
 from .state import AppState
 from .io_utils import TZ
+from .clustering import season_of
 
 
 def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
@@ -156,6 +157,36 @@ def build_calibration_workbook_shop(S: AppState) -> bytes:
         S.shop_fit["p_zero"].to_excel(xl, sheet_name="p_zero")
     return out.getvalue()
 
+def _extract_pv_daily_totals(S: AppState) -> Optional[pd.DataFrame]:
+    """Return historical PV daily totals grouped by season, if available."""
+
+    daily_totals = None
+    if getattr(S, "pv_diag", None):
+        daily_totals = S.pv_diag.get("daily_totals")
+        if daily_totals is not None and not daily_totals.empty:
+            return daily_totals.copy()
+
+    pv_perkwp = getattr(S, "pv_perkwp", None)
+    if pv_perkwp is None or pv_perkwp.empty:
+        return None
+
+    df = pv_perkwp.copy()
+    if "timestamp" not in df.columns or "kWh_per_kWp" not in df.columns:
+        return None
+
+    df = df[df["kWh_per_kWp"].notna()]
+    if df.empty:
+        return None
+
+    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["season"] = df["timestamp"].apply(season_of)
+    df["date"] = df["timestamp"].dt.date
+    daily = (
+        df.groupby(["season", "date"])["kWh_per_kWp"].sum().reset_index()
+    )
+    return daily if not daily.empty else None
+
+
 def build_calibration_workbook_pv(S: AppState) -> bytes:
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
@@ -170,6 +201,48 @@ def build_calibration_workbook_pv(S: AppState) -> bytes:
             recs.append({"season": k, "P_00": v["P"][0][0], "P_01": v["P"][0][1], "P_10": v["P"][1][0], "P_11": v["P"][1][1],
                          "beta_alpha": v["beta"]["alpha"], "beta_beta": v["beta"]["beta"]})
         pd.DataFrame(recs).to_excel(xl, sheet_name="markov_beta", index=False)
+
+        # Daily medians sandbox
+        daily_totals = _extract_pv_daily_totals(S)
+
+        if daily_totals is not None and not daily_totals.empty:
+            daily_df = daily_totals.copy()
+            daily_df["date"] = pd.to_datetime(daily_df["date"])
+            medians = (
+                daily_df.groupby("season")["kWh_per_kWp"].median()
+                .rename("observed_median_kWh_per_kWp")
+                .reset_index()
+            )
+            medians["test_median_kWh_per_kWp"] = medians["observed_median_kWh_per_kWp"]
+
+            instructions = pd.DataFrame(
+                {
+                    "Note": [
+                        "Adjust the test median column to experiment with alternative seasonal medians.",
+                        "Use the daily totals table below to compute additional statistics if needed.",
+                        "These medians are available right after running the PV fitting step (Monte Carlo not required).",
+                    ]
+                }
+            )
+
+            instructions.to_excel(xl, sheet_name="daily_medians", index=False)
+            start_row = len(instructions) + 2
+            medians.to_excel(
+                xl,
+                sheet_name="daily_medians",
+                index=False,
+                startrow=start_row,
+            )
+
+            daily_export = daily_df.sort_values(["season", "date"])
+            daily_export["date"] = daily_export["date"].dt.strftime("%Y-%m-%d")
+            daily_start = start_row + len(medians) + 2
+            daily_export.to_excel(
+                xl,
+                sheet_name="daily_medians",
+                index=False,
+                startrow=daily_start,
+            )
     return out.getvalue()
 
 def export_kpi_quantiles(summary_df: pd.DataFrame) -> bytes:
