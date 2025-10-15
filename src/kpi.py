@@ -31,6 +31,11 @@ def compute_kpi_distributions(S: AppState):
     imp_hh = mc["import_hh"]; imp_sh = mc["import_shop"]
     exp = mc["export"]; rev = mc["pros_rev"]; cost = mc["cons_cost"]
     pv = mc["pv_gen"]; cons = mc["cons_total"]
+    default = np.zeros_like(pv)
+    pros_demand = mc.get("pros_demand", default)
+    surplus_shared = mc.get("surplus_shared", default)
+    hh_demand = mc.get("hh_demand", default)
+    shop_demand = mc.get("shop_demand", default)
     base = mc["cons_baseline"]
     plat_gap = mc["platform_gap"]; fees = mc["platform_fees"]; fixed = mc["platform_fixed"]
     plat_margin = mc["platform_margin"]
@@ -50,6 +55,10 @@ def compute_kpi_distributions(S: AppState):
 
     dists = {
         "PV generation (kWh)": pv,
+        "PV demand (kWh)": pros_demand,
+        "Surplus (kWh)": surplus_shared,
+        "HH demand (kWh)": hh_demand,
+        "Shop demand (kWh)": shop_demand,
         "Matched to HH (kWh)": m_hh,
         "Matched to SHOP (kWh)": m_sh,
         "Exports (kWh)": exp,

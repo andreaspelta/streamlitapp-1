@@ -315,6 +315,10 @@ def run_monte_carlo(
     pv_gen = np.zeros(S)
     cons_total = np.zeros(S)
     baseline_cost = np.zeros(S)
+    pros_demand = np.zeros(S)
+    hh_demand = np.zeros(S)
+    shop_demand = np.zeros(S)
+    shared_surplus = np.zeros(S)
 
     fees = 12.0 * (
         nP * price_params.get("f_pros", 0.0)
@@ -361,6 +365,10 @@ def run_monte_carlo(
         pv_sum = 0.0
         cons_sum = 0.0
         base_cost = 0.0
+        pros_sum = 0.0
+        hh_sum = 0.0
+        shop_sum = 0.0
+        surplus_shared = 0.0
 
         for h_idx in range(n_hours):
             zon = zonal_prices[h_idx]
@@ -374,11 +382,15 @@ def run_monte_carlo(
 
             base_cost += hh_full.sum() * layer["ret_HH"] + sh_full.sum() * layer["ret_SH"]
 
+            hh_sum += hh_full.sum()
+            shop_sum += sh_full.sum()
+
             residuals = []
             for p_idx, pid in enumerate(prosumer_ids):
                 L = float(pros_load[p_idx, h_idx]) if nP else 0.0
                 G = float(pros_gen[p_idx, h_idx]) if nP else 0.0
                 pv_sum += G
+                pros_sum += L
                 surplus = max(G - L, 0.0)
 
                 idxs = mapping_idx[p_idx] if p_idx < len(mapping_idx) else None
@@ -392,6 +404,7 @@ def run_monte_carlo(
                             U_hh[idxs] -= alloc
                             surplus = resid
                             m_hh += taken
+                            surplus_shared += taken
                             rev += taken * layer["Ppros_HH"]
                             cost += taken * layer["Pcons_HH"]
                             gap_eur += (taken * (1 - layer["loss_factor"])) * layer["gap_HH"]
@@ -406,6 +419,7 @@ def run_monte_carlo(
                 if taken_s > 0:
                     U_sh -= alloc_s
                     m_shop += taken_s
+                    surplus_shared += taken_s
                     rev += taken_s * layer["Ppros_SH"]
                     cost += taken_s * layer["Pcons_SH"]
                     gap_eur += (taken_s * (1 - layer["loss_factor"])) * layer["gap_SH"]
@@ -431,6 +445,10 @@ def run_monte_carlo(
         pv_gen[sidx] = pv_sum
         cons_total[sidx] = cons_sum
         baseline_cost[sidx] = base_cost
+        pros_demand[sidx] = pros_sum
+        hh_demand[sidx] = hh_sum
+        shop_demand[sidx] = shop_sum
+        shared_surplus[sidx] = surplus_shared
 
     platform_margin = platform_gap + fees - fixed
 
@@ -449,4 +467,8 @@ def run_monte_carlo(
         pv_gen=pv_gen,
         cons_total=cons_total,
         cons_baseline=baseline_cost,
+        pros_demand=pros_demand,
+        hh_demand=hh_demand,
+        shop_demand=shop_demand,
+        surplus_shared=shared_surplus,
     )
