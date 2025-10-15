@@ -172,19 +172,60 @@ def build_calibration_workbook_pv(S: AppState) -> bytes:
         pd.DataFrame(recs).to_excel(xl, sheet_name="markov_beta", index=False)
 
         # Daily medians sandbox
-        daily_totals = None
+        daily_totals_raw = None
         if getattr(S, "pv_diag", None):
-            daily_totals = S.pv_diag.get("daily_totals")
+            daily_totals_raw = S.pv_diag.get("daily_totals")
 
-        if daily_totals is not None and not daily_totals.empty:
-            daily_df = daily_totals.copy()
+        medians_df = None
+        fit_medians = None
+        if getattr(S, "pv_fit", None):
+            fit_medians = S.pv_fit.get("daily_median_M")
+
+        if isinstance(fit_medians, dict) and fit_medians:
+            medians_df = pd.DataFrame(
+                [
+                    {
+                        "season": season,
+                        "observed_median_kWh_per_kWp": float(value),
+                    }
+                    for season, value in fit_medians.items()
+                ]
+            )
+        elif hasattr(fit_medians, "items") and fit_medians:
+            medians_df = pd.DataFrame(
+                [
+                    {
+                        "season": season,
+                        "observed_median_kWh_per_kWp": float(value),
+                    }
+                    for season, value in dict(fit_medians).items()
+                ]
+            )
+
+        if medians_df is None and getattr(S, "pv_diag", None):
+            diag_medians = S.pv_diag.get("daily_median_M")
+            if isinstance(diag_medians, pd.DataFrame) and not diag_medians.empty:
+                medians_df = diag_medians.rename(
+                    columns={"median_kWh_per_kWp": "observed_median_kWh_per_kWp"}
+                ).copy()
+
+        daily_df = None
+        if isinstance(daily_totals_raw, pd.DataFrame) and not daily_totals_raw.empty:
+            daily_df = daily_totals_raw.copy()
             daily_df["date"] = pd.to_datetime(daily_df["date"])
-            medians = (
+
+        if medians_df is None and daily_df is not None:
+            medians_df = (
                 daily_df.groupby("season")["kWh_per_kWp"].median()
                 .rename("observed_median_kWh_per_kWp")
                 .reset_index()
             )
-            medians["test_median_kWh_per_kWp"] = medians["observed_median_kWh_per_kWp"]
+
+        if medians_df is not None and not medians_df.empty:
+            medians_df = medians_df.sort_values("season").reset_index(drop=True)
+            medians_df["test_median_kWh_per_kWp"] = medians_df[
+                "observed_median_kWh_per_kWp"
+            ]
 
             instructions = pd.DataFrame(
                 {
@@ -197,22 +238,23 @@ def build_calibration_workbook_pv(S: AppState) -> bytes:
 
             instructions.to_excel(xl, sheet_name="daily_medians", index=False)
             start_row = len(instructions) + 2
-            medians.to_excel(
+            medians_df.to_excel(
                 xl,
                 sheet_name="daily_medians",
                 index=False,
                 startrow=start_row,
             )
 
-            daily_export = daily_df.sort_values(["season", "date"])
-            daily_export["date"] = daily_export["date"].dt.strftime("%Y-%m-%d")
-            daily_start = start_row + len(medians) + 2
-            daily_export.to_excel(
-                xl,
-                sheet_name="daily_medians",
-                index=False,
-                startrow=daily_start,
-            )
+            if daily_df is not None:
+                daily_export = daily_df.sort_values(["season", "date"])
+                daily_export["date"] = daily_export["date"].dt.strftime("%Y-%m-%d")
+                daily_start = start_row + len(medians_df) + 2
+                daily_export.to_excel(
+                    xl,
+                    sheet_name="daily_medians",
+                    index=False,
+                    startrow=daily_start,
+                )
     return out.getvalue()
 
 def export_kpi_quantiles(summary_df: pd.DataFrame) -> bytes:
