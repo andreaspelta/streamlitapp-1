@@ -170,6 +170,49 @@ def build_calibration_workbook_pv(S: AppState) -> bytes:
             recs.append({"season": k, "P_00": v["P"][0][0], "P_01": v["P"][0][1], "P_10": v["P"][1][0], "P_11": v["P"][1][1],
                          "beta_alpha": v["beta"]["alpha"], "beta_beta": v["beta"]["beta"]})
         pd.DataFrame(recs).to_excel(xl, sheet_name="markov_beta", index=False)
+
+        # Daily medians sandbox
+        daily_totals = None
+        if getattr(S, "pv_diag", None):
+            daily_totals = S.pv_diag.get("daily_totals")
+
+        if daily_totals is not None and not daily_totals.empty:
+            daily_df = daily_totals.copy()
+            daily_df["date"] = pd.to_datetime(daily_df["date"])
+            medians = (
+                daily_df.groupby("season")["kWh_per_kWp"].median()
+                .rename("observed_median_kWh_per_kWp")
+                .reset_index()
+            )
+            medians["test_median_kWh_per_kWp"] = medians["observed_median_kWh_per_kWp"]
+
+            instructions = pd.DataFrame(
+                {
+                    "Note": [
+                        "Adjust the test median column to experiment with alternative seasonal medians.",
+                        "Use the daily totals table below to compute additional statistics if needed.",
+                    ]
+                }
+            )
+
+            instructions.to_excel(xl, sheet_name="daily_medians", index=False)
+            start_row = len(instructions) + 2
+            medians.to_excel(
+                xl,
+                sheet_name="daily_medians",
+                index=False,
+                startrow=start_row,
+            )
+
+            daily_export = daily_df.sort_values(["season", "date"])
+            daily_export["date"] = daily_export["date"].dt.strftime("%Y-%m-%d")
+            daily_start = start_row + len(medians) + 2
+            daily_export.to_excel(
+                xl,
+                sheet_name="daily_medians",
+                index=False,
+                startrow=daily_start,
+            )
     return out.getvalue()
 
 def export_kpi_quantiles(summary_df: pd.DataFrame) -> bytes:
