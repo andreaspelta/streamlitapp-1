@@ -208,7 +208,7 @@ def _sample_pv_cached(
 
     n_hours = hour_cache["n_hours"]
     day_codes = hour_cache["day_codes"]
-    season_codes = hour_cache["day_season_codes"]
+    season_codes = template["day_season_codes"]
 
     base_hour = template["base_hour"]
     alpha_hour = template["alpha_hour"]
