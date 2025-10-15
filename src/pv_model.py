@@ -42,7 +42,11 @@ def fit_pv_optionB_v3(pv_perkwp: pd.DataFrame) -> Tuple[Dict, Dict]:
         # Fix loc=0 for stability
         fisk = _fisk()
         c, loc, scale = fisk.fit(M, floc=0)
-        LL[s] = {"c": float(max(c, 0.1)), "scale": float(max(scale, 1e-6))}
+        LL[s] = {
+            "c": float(max(c, 0.1)),
+            "scale": float(max(scale, 1e-6)),
+            "median_M": float(med),
+        }
 
     # Simple 2-state (Clear/Cloud) Markov estimated via threshold on daily totals
     markov = {}
