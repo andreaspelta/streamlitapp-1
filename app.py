@@ -1,3 +1,6 @@
+import hashlib
+from io import BytesIO
+
 import streamlit as st
 from src.state import get_state, reset_all_state
 from src.io_utils import (
@@ -63,9 +66,16 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             )
         hh_file = st.file_uploader("Households.xlsx", type=["xlsx"])
         if hh_file:
-            with spinner_block("Reading Households Excel..."):
-                S.hh_df = read_households_excel(hh_file)  # hourly kWh per household_id
-            info_box(f"Households loaded: {S.hh_df['household_id'].nunique()} meters, hours = {S.hh_df['timestamp'].nunique()}.")
+            file_bytes = hh_file.getvalue()
+            digest = hashlib.md5(file_bytes).hexdigest()
+            if S.hh_file_digest != digest:
+                with spinner_block("Reading Households Excel..."):
+                    S.hh_df = read_households_excel(BytesIO(file_bytes))  # hourly kWh per household_id
+                S.hh_file_digest = digest
+            if S.hh_df is not None:
+                info_box(
+                    f"Households loaded: {S.hh_df['household_id'].nunique()} meters, hours = {S.hh_df['timestamp'].nunique()}."
+                )
 
     with st.expander("Upload — Small Shops (Excel: 1 sheet per shop; 15-min kWh in 'ActiveEnergy_Generale')", expanded=True):
         st.download_button(
@@ -86,9 +96,16 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             )
         shop_file = st.file_uploader("SmallShops.xlsx", type=["xlsx"])
         if shop_file:
-            with spinner_block("Reading Small Shops Excel..."):
-                S.shop_df = read_shops_excel(shop_file)  # hourly kWh per shop_id
-            info_box(f"Shops loaded: {S.shop_df['shop_id'].nunique()} meters, hours = {S.shop_df['timestamp'].nunique()}.")
+            file_bytes = shop_file.getvalue()
+            digest = hashlib.md5(file_bytes).hexdigest()
+            if S.shop_file_digest != digest:
+                with spinner_block("Reading Small Shops Excel..."):
+                    S.shop_df = read_shops_excel(BytesIO(file_bytes))  # hourly kWh per shop_id
+                S.shop_file_digest = digest
+            if S.shop_df is not None:
+                info_box(
+                    f"Shops loaded: {S.shop_df['shop_id'].nunique()} meters, hours = {S.shop_df['timestamp'].nunique()}."
+                )
 
     with st.expander("Upload — Prosumer PV (Excel: per-kWp hourly kWh)", expanded=True):
         st.download_button(
@@ -112,9 +129,14 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             )
         pv_file = st.file_uploader("PV.xlsx", type=["xlsx"])
         if pv_file:
-            with spinner_block("Reading PV Excel..."):
-                S.pv_perkwp = read_pv_excel(pv_file)
-            info_box(f"PV per-kWp hours: {len(S.pv_perkwp)}.")
+            file_bytes = pv_file.getvalue()
+            digest = hashlib.md5(file_bytes).hexdigest()
+            if S.pv_file_digest != digest:
+                with spinner_block("Reading PV Excel..."):
+                    S.pv_perkwp = read_pv_excel(BytesIO(file_bytes))
+                S.pv_file_digest = digest
+            if S.pv_perkwp is not None:
+                info_box(f"PV per-kWp hours: {len(S.pv_perkwp)}.")
 
     with st.expander("Upload — Prices", expanded=True):
         col1, col2 = st.columns(2)
@@ -129,8 +151,13 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             )
             zonal_file = st.file_uploader("zonal.csv (timestamp, zonal_price (EUR_per_MWh))", type=["csv"], key="zonal")
             if zonal_file:
-                S.zonal = read_zonal_csv(zonal_file)
-                info_box(f"Zonal rows: {len(S.zonal)} (hourly).")
+                file_bytes = zonal_file.getvalue()
+                digest = hashlib.md5(file_bytes).hexdigest()
+                if S.zonal_file_digest != digest:
+                    S.zonal = read_zonal_csv(BytesIO(file_bytes))
+                    S.zonal_file_digest = digest
+                if S.zonal is not None:
+                    info_box(f"Zonal rows: {len(S.zonal)} (hourly).")
         with col2:
             pun_year = st.selectbox("Monthly PUN template year", list(range(2024, 2031)), key="pun_template_year")
             st.download_button(
@@ -142,8 +169,13 @@ Upload the **Households**, **Small Shops**, **PV per-kWp Excel**, and **Prices**
             )
             pun_file = st.file_uploader("PUN_monthly.csv (timestamp(any day in month), PUN (EUR_per_kWh))", type=["csv"], key="pun")
             if pun_file:
-                S.pun_m = read_pun_monthly_csv(pun_file)
-                info_box(f"Monthly PUN rows: {len(S.pun_m)} (€/kWh).")
+                file_bytes = pun_file.getvalue()
+                digest = hashlib.md5(file_bytes).hexdigest()
+                if S.pun_file_digest != digest:
+                    S.pun_m = read_pun_monthly_csv(BytesIO(file_bytes))
+                    S.pun_file_digest = digest
+                if S.pun_m is not None:
+                    info_box(f"Monthly PUN rows: {len(S.pun_m)} (€/kWh).")
 
         # Build calendar from ZONAL hours, then expand monthly PUN to hours
         if S.zonal is not None:
