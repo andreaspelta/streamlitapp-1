@@ -87,11 +87,18 @@ def _build_zonal_price_template_cached(year: int) -> bytes:
             "zonal_price (EUR_per_MWh)": np.nan,
         }
     )
-    return df.to_csv(index=False).encode("utf-8")
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        sheet = "Zonal_prices"
+        df.to_excel(xl, sheet_name=sheet, index=False, startrow=2)
+        ws = xl.sheets[sheet]
+        ws.write(0, 0, f"Zonal price template — hourly prices for {year}")
+        ws.write(1, 0, "Keep the timestamp column unchanged and fill EUR/MWh values in column B.")
+    return out.getvalue()
 
 
 def build_zonal_price_template(year: int) -> bytes:
-    """Create an hourly zonal price CSV template for the selected year."""
+    """Create an hourly zonal price Excel template for the selected year."""
 
     return _build_zonal_price_template_cached(int(year))
 
@@ -109,11 +116,18 @@ def _build_pun_monthly_template_cached(year: int) -> bytes:
             "PUN (EUR_per_kWh)": np.nan,
         }
     )
-    return df.to_csv(index=False).encode("utf-8")
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        sheet = "Monthly_PUN"
+        df.to_excel(xl, sheet_name=sheet, index=False, startrow=2)
+        ws = xl.sheets[sheet]
+        ws.write(0, 0, f"Monthly PUN template — €/kWh for {year}")
+        ws.write(1, 0, "Provide one value per month; timestamps should remain as the first of each month at 00:00.")
+    return out.getvalue()
 
 
 def build_pun_monthly_template(year: int) -> bytes:
-    """Create a monthly PUN CSV template for the selected year."""
+    """Create a monthly PUN Excel template for the selected year."""
 
     return _build_pun_monthly_template_cached(int(year))
     
