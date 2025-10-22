@@ -4,6 +4,7 @@ from typing import Dict
 
 import numpy as np
 import pandas as pd
+from pandas.api.types import is_datetime64tz_dtype
 
 from .state import AppState
 from .io_utils import TZ
@@ -15,6 +16,29 @@ def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
     """Return timestamps formatted with timezone offset for CSV/Excel templates."""
 
     return idx.strftime("%Y-%m-%d %H:%M:%S%z")
+
+
+def _timezone_naive(df: pd.DataFrame | None) -> pd.DataFrame | None:
+    """Return a copy of *df* with any timezone-aware datetimes made naive.
+
+    Excel writers reject timezone-aware timestamps. This helper is used before
+    exporting DataFrames to Excel so that Streamlit downloads succeed regardless
+    of the upstream timezone handling.
+    """
+
+    if df is None:
+        return None
+
+    out = df.copy()
+
+    for col in out.columns:
+        if is_datetime64tz_dtype(out[col]):
+            out[col] = out[col].dt.tz_localize(None)
+
+    if isinstance(out.index, pd.DatetimeIndex) and out.index.tz is not None:
+        out.index = out.index.tz_localize(None)
+
+    return out
 
 def _profile_template_dataframe() -> pd.DataFrame:
     df = pd.DataFrame({"hour": np.arange(24, dtype=int)})
@@ -258,12 +282,6 @@ def export_all_in_one_xlsx(S: AppState) -> bytes:
     summary = compute_kpi_summary(S)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
-        summary.to_excel(xl, sheet_name="kpi_summary", index=False)
-        S.result.prosumer_summary.to_excel(xl, sheet_name="prosumer_summary", index=False)
-        S.result.household_summary.to_excel(xl, sheet_name="household_summary", index=False)
-        S.result.shop_summary.to_excel(xl, sheet_name="shop_summary", index=False)
-        S.result.community_hourly.to_excel(xl, sheet_name="community_hourly", index=False)
-        S.result.prices.to_excel(xl, sheet_name="prices", index=False)
         meta = pd.DataFrame({
             "year": [S.year],
             "hh_gift": [S.hh_gift],
@@ -272,7 +290,21 @@ def export_all_in_one_xlsx(S: AppState) -> bytes:
             "N_HH": [len(S.hh_ids)],
             "N_SHOP": [len(S.shop_ids)],
         })
-        meta.to_excel(xl, sheet_name="metadata", index=False)
+
+        tables = [
+            ("kpi_summary", summary),
+            ("prosumer_summary", S.result.prosumer_summary),
+            ("household_summary", S.result.household_summary),
+            ("shop_summary", S.result.shop_summary),
+            ("community_hourly", S.result.community_hourly),
+            ("prices", S.result.prices),
+            ("metadata", meta),
+        ]
+
+        for sheet_name, df in tables:
+            sanitised = _timezone_naive(df)
+            if sanitised is not None:
+                sanitised.to_excel(xl, sheet_name=sheet_name, index=False)
     return out.getvalue()
 
 def export_hourly_facts(S, fmt="csv"):
