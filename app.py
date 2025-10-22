@@ -231,7 +231,11 @@ if page == "1) Templates & Inputs":
     st.markdown("---")
     if st.button("Reset all inputs"):
         reset_all_state()
-        st.experimental_rerun()
+        rerun = getattr(st, "rerun", None)
+        if callable(rerun):
+            rerun()
+        else:
+            st.experimental_rerun()
 
 # ---- Page 2: Scenario Builder
 elif page == "2) Scenario Builder":
