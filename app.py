@@ -9,8 +9,8 @@ from src.io_utils import (
     read_pv_excel,
     read_household_template,
     read_shop_template,
-    read_zonal_csv,
-    read_pun_monthly_csv,
+    read_zonal_excel,
+    read_pun_monthly_excel,
     ensure_price_hours,
     expand_monthly_pun_to_hours,
 )
@@ -183,16 +183,16 @@ if page == "1) Templates & Inputs":
         st.download_button(
             f"Download zonal template ({S.year})",
             build_zonal_price_template(S.year),
-            file_name=f"zonal_template_{S.year}.csv",
-            mime="text/csv",
+            file_name=f"zonal_template_{S.year}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        zonal_file = st.file_uploader("Upload zonal price CSV", type=["csv"], key="zonal")
+        zonal_file = st.file_uploader("Upload zonal price Excel", type=["xlsx"], key="zonal")
         if zonal_file:
             data = zonal_file.getvalue()
             digest = hashlib.md5(data).hexdigest()
             if digest != S.zonal_file_digest:
                 try:
-                    zonal_df = read_zonal_csv(BytesIO(data))
+                    zonal_df = read_zonal_excel(BytesIO(data))
                     expected_hours = ensure_price_hours(zonal_df)
                     if S.hours is not None and not expected_hours.equals(S.hours):
                         raise ValueError("Zonal calendar does not match the selected year template.")
@@ -200,30 +200,30 @@ if page == "1) Templates & Inputs":
                     S.zonal_file_digest = digest
                     info_box(f"Zonal prices loaded: {len(zonal_df)} rows.")
                 except Exception as exc:
-                    error_box(f"Failed to read zonal CSV: {exc}")
+                    error_box(f"Failed to read zonal Excel: {exc}")
                     S.zonal = None
                     S.zonal_file_digest = None
     with col_price2:
         st.download_button(
             f"Download monthly PUN template ({S.year})",
             build_pun_monthly_template(S.year),
-            file_name=f"pun_monthly_{S.year}.csv",
-            mime="text/csv",
+            file_name=f"pun_monthly_{S.year}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
-        pun_file = st.file_uploader("Upload monthly PUN CSV", type=["csv"], key="pun")
+        pun_file = st.file_uploader("Upload monthly PUN Excel", type=["xlsx"], key="pun")
         if pun_file:
             data = pun_file.getvalue()
             digest = hashlib.md5(data).hexdigest()
             if digest != S.pun_file_digest:
                 try:
-                    pun_df = read_pun_monthly_csv(BytesIO(data))
+                    pun_df = read_pun_monthly_excel(BytesIO(data))
                     S.pun_m = pun_df
                     if S.hours is not None:
                         S.pun_h = expand_monthly_pun_to_hours(pun_df, S.hours)
                     S.pun_file_digest = digest
                     info_box("Monthly PUN loaded and expanded to hours.")
                 except Exception as exc:
-                    error_box(f"Failed to read monthly PUN: {exc}")
+                    error_box(f"Failed to read monthly PUN workbook: {exc}")
                     S.pun_m = None
                     S.pun_h = None
                     S.pun_file_digest = None

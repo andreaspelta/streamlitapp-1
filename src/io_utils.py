@@ -256,21 +256,42 @@ def read_shop_template(file: IO) -> pd.DataFrame:
 
     return _read_cluster_template(file, "SHOP")
 
-def read_zonal_csv(file: IO) -> pd.DataFrame:
+def read_zonal_excel(file: IO) -> pd.DataFrame:
     buffer = _reset_file_like(file)
-    df = pd.read_csv(buffer, engine="pyarrow")
+    df = _read_excel_with_flexible_header(buffer, {"timestamp"})
     if "timestamp" not in df.columns:
         raise ValueError("[ZONAL] Missing 'timestamp' column")
-    # Accept 'zonal_price' or 'zonal_price (EUR_per_MWh)'
-    if "zonal_price (EUR_per_MWh)" not in df.columns:
-        if "zonal_price" in df.columns:
-            df = df.rename(columns={"zonal_price": "zonal_price (EUR_per_MWh)"})
-        else:
-            raise ValueError("[ZONAL] Missing 'zonal_price (EUR_per_MWh)' column")
-    df = _ensure_ts_local(df, "timestamp")
-    return df[["timestamp", "zonal_price (EUR_per_MWh)"]].sort_values("timestamp")
 
-def read_pun_monthly_csv(file: IO) -> pd.DataFrame:
+    price_col = None
+    for col in df.columns:
+        norm = col.strip().lower()
+        if norm in {
+            "zonal_price (eur_per_mwh)",
+            "zonal_price",
+            "price (eur_per_mwh)",
+            "price_eur_per_mwh",
+        }:
+            price_col = col
+            break
+    if price_col is None:
+        raise ValueError("[ZONAL] Missing 'zonal_price (EUR_per_MWh)' column")
+
+    df = df[["timestamp", price_col]].rename(
+        columns={price_col: "zonal_price (EUR_per_MWh)"}
+    )
+    df = _ensure_ts_local(df, "timestamp")
+    df["zonal_price (EUR_per_MWh)"] = _to_non_negative_numeric(
+        df["zonal_price (EUR_per_MWh)"]
+    )
+    return df.dropna(subset=["zonal_price (EUR_per_MWh)"]).sort_values("timestamp")
+
+def read_zonal_csv(file: IO) -> pd.DataFrame:
+    """Backward compatible wrapper for CSV uploads (deprecated)."""
+
+    return read_zonal_excel(file)
+
+
+def read_pun_monthly_excel(file: IO) -> pd.DataFrame:
     """
     Expect monthly PUN in €/kWh.
     Columns:
@@ -278,13 +299,13 @@ def read_pun_monthly_csv(file: IO) -> pd.DataFrame:
       - PUN (EUR_per_kWh): numeric
     """
     buffer = _reset_file_like(file)
-    df = pd.read_csv(buffer, engine="pyarrow")
+    df = _read_excel_with_flexible_header(buffer, {"timestamp"})
     if "timestamp" not in df.columns:
         raise ValueError("[PUN] Missing 'timestamp' column")
-    # Accept 'PUN (EUR_per_kWh)' or 'PUN' or 'pun_eur_per_kwh'
+
     pun_col = None
     for c in df.columns:
-        if c.strip().lower() in ["pun (eur_per_kwh)", "pun", "pun_eur_per_kwh"]:
+        if c.strip().lower() in {"pun (eur_per_kwh)", "pun", "pun_eur_per_kwh"}:
             pun_col = c
             break
     if pun_col is None:
@@ -299,6 +320,12 @@ def read_pun_monthly_csv(file: IO) -> pd.DataFrame:
     df["timestamp"] = df["ym"].dt.to_timestamp().dt.tz_localize(TZ)
     df = df[["timestamp", "PUN (EUR_per_kWh)"]].sort_values("timestamp")
     return df
+
+
+def read_pun_monthly_csv(file: IO) -> pd.DataFrame:
+    """Backward compatible wrapper for CSV uploads (deprecated)."""
+
+    return read_pun_monthly_excel(file)
 
 def ensure_price_hours(zonal: pd.DataFrame) -> pd.DatetimeIndex:
     """
