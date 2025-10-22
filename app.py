@@ -256,12 +256,12 @@ elif page == "2) Scenario Builder":
     col_price_a, col_price_b, col_price_c = st.columns(3)
     with col_price_a:
         S.s_HH = st.number_input("HH retail spread (€/kWh)", min_value=0.0, value=S.s_HH, step=0.01, format="%.4f")
-        S.alpha_HH = st.slider("alpha_HH", 0.0, 1.0, value=S.alpha_HH, step=0.01)
-        S.phi_HH = st.slider("phi_HH", 0.0, 1.0, value=S.phi_HH, step=0.01)
+        S.spread_split_HH = st.slider("spread_split_HH", 0.0, 1.0, value=S.spread_split_HH, step=0.01)
+        S.platform_gap_HH = st.slider("platform_gap_HH", 0.0, 1.0, value=S.platform_gap_HH, step=0.01)
     with col_price_b:
         S.s_SH = st.number_input("SHOP retail spread (€/kWh)", min_value=0.0, value=S.s_SH, step=0.01, format="%.4f")
-        S.alpha_SH = st.slider("alpha_SH", 0.0, 1.0, value=S.alpha_SH, step=0.01)
-        S.phi_SH = st.slider("phi_SH", 0.0, 1.0, value=S.phi_SH, step=0.01)
+        S.spread_split_SH = st.slider("spread_split_SH", 0.0, 1.0, value=S.spread_split_SH, step=0.01)
+        S.platform_gap_SH = st.slider("platform_gap_SH", 0.0, 1.0, value=S.platform_gap_SH, step=0.01)
     with col_price_c:
         S.delta_unm = st.number_input("δ_unm export uplift (€/kWh)", value=S.delta_unm, step=0.01, format="%.4f")
 
@@ -344,10 +344,10 @@ elif page == "3) Run Deterministic":
             price_layer = build_price_layers(
                 s_hh=S.s_HH,
                 s_sh=S.s_SH,
-                a_hh=S.alpha_HH,
-                phi_hh=S.phi_HH,
-                a_sh=S.alpha_SH,
-                phi_sh=S.phi_SH,
+                spread_split_hh=S.spread_split_HH,
+                platform_gap_hh=S.platform_gap_HH,
+                spread_split_sh=S.spread_split_SH,
+                platform_gap_sh=S.platform_gap_SH,
                 delta_unm=S.delta_unm,
                 loss_factor=S.loss_factor,
                 hh_gift=S.hh_gift,

@@ -2,7 +2,17 @@ import numpy as np
 
 NEGATIVE_RULE = "If zonal < 0 → P_pros=0; P_cons=retail (PUN-monthly+spread); gap=0; export = max(zonal+δ_unm, 0)."
 
-def build_price_layers(s_hh, s_sh, a_hh, phi_hh, a_sh, phi_sh, delta_unm, loss_factor, hh_gift):
+def build_price_layers(
+    s_hh,
+    s_sh,
+    spread_split_hh,
+    platform_gap_hh,
+    spread_split_sh,
+    platform_gap_sh,
+    delta_unm,
+    loss_factor,
+    hh_gift,
+):
     """
     Returns a callable that receives:
       - zonal_eur_per_mwh (float)   [hourly]
@@ -36,13 +46,19 @@ def build_price_layers(s_hh, s_sh, a_hh, phi_hh, a_sh, phi_sh, delta_unm, loss_f
             S_SH = max(ret_SH - z_anchor, 0.0)
 
             # Prosumer price lift off anchored zonal (€/kWh), capped at retail
-            Ppros_HH = min(z_anchor + (1 - phi_hh) * a_hh * S_HH, ret_HH)
-            Pcons_HH = ret_HH - (1 - phi_hh) * (1 - a_hh) * S_HH
-            gap_HH = phi_hh * S_HH
+            Ppros_HH = min(
+                z_anchor + (1 - platform_gap_hh) * spread_split_hh * S_HH,
+                ret_HH,
+            )
+            Pcons_HH = ret_HH - (1 - platform_gap_hh) * (1 - spread_split_hh) * S_HH
+            gap_HH = platform_gap_hh * S_HH
 
-            Ppros_SH = min(z_anchor + (1 - phi_sh) * a_sh * S_SH, ret_SH)
-            Pcons_SH = ret_SH - (1 - phi_sh) * (1 - a_sh) * S_SH
-            gap_SH = phi_sh * S_SH
+            Ppros_SH = min(
+                z_anchor + (1 - platform_gap_sh) * spread_split_sh * S_SH,
+                ret_SH,
+            )
+            Pcons_SH = ret_SH - (1 - platform_gap_sh) * (1 - spread_split_sh) * S_SH
+            gap_SH = platform_gap_sh * S_SH
 
         if hh_gift and z >= 0:
             # Gift: HH matched at zero for both sides; no gap

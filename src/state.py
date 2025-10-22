@@ -33,10 +33,10 @@ class AppState:
     # Pricing parameters
     s_HH: float = 0.10
     s_SH: float = 0.12
-    alpha_HH: float = 0.5
-    phi_HH: float = 0.3
-    alpha_SH: float = 0.5
-    phi_SH: float = 0.3
+    spread_split_HH: float = 0.5
+    platform_gap_HH: float = 0.3
+    spread_split_SH: float = 0.5
+    platform_gap_SH: float = 0.3
     delta_unm: float = 0.0
     loss_factor: float = 0.05
 
