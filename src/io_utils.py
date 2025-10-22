@@ -1,5 +1,5 @@
 import io
-from typing import IO
+from typing import IO, Iterable
 
 import numpy as np
 import pandas as pd
@@ -163,13 +163,44 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
     hourly = hourly[hourly["kWh"] > 0]
     return hourly.sort_values(["timestamp", "shop_id"]).reset_index(drop=True)
 
+
+def _clean_columns(columns: Iterable) -> list[str]:
+    cleaned = []
+    for col in columns:
+        if isinstance(col, str):
+            cleaned.append(col.strip())
+        elif pd.isna(col):
+            cleaned.append("")
+        else:
+            cleaned.append(str(col).strip())
+    return cleaned
+
+
+def _read_excel_with_flexible_header(
+    buffer: IO, required_cols: set[str], headers: Iterable[int] = (0, 1, 2, 3, 4)
+) -> pd.DataFrame:
+    """Attempt to read an Excel file trying multiple header rows."""
+
+    last_df = None
+    for header in headers:
+        try:
+            buffer.seek(0)
+        except (OSError, io.UnsupportedOperation):
+            pass
+        df = pd.read_excel(buffer, header=header)
+        df.columns = _clean_columns(df.columns)
+        last_df = df
+        if required_cols.issubset(df.columns):
+            return df
+    return last_df if last_df is not None else pd.DataFrame()
+
+
 def read_pv_excel(file: IO) -> pd.DataFrame:
     """Read deterministic PV template (timestamp, kWh_per_kWp)."""
 
     buffer = _reset_file_like(file)
-    df = pd.read_excel(buffer)
-    df.columns = [c.strip() for c in df.columns]
     required_cols = {"timestamp", "kWh_per_kWp"}
+    df = _read_excel_with_flexible_header(buffer, required_cols)
     if not required_cols.issubset(df.columns):
         missing = required_cols.difference(df.columns)
         raise ValueError(
@@ -185,8 +216,13 @@ def read_pv_excel(file: IO) -> pd.DataFrame:
 
 def _read_cluster_template(file: IO, label: str) -> pd.DataFrame:
     buffer = _reset_file_like(file)
-    df = pd.read_excel(buffer)
-    df.columns = [c.strip() for c in df.columns]
+    required_cols = {"hour", *CLUSTERS}
+    df = _read_excel_with_flexible_header(buffer, required_cols)
+    if not required_cols.issubset(df.columns):
+        missing = sorted(required_cols.difference(df.columns))
+        raise ValueError(
+            f"[{label}] Missing columns: {', '.join(missing)}"
+        )
     if "hour" not in df.columns:
         raise ValueError(f"[{label}] Missing 'hour' column")
     missing = [c for c in CLUSTERS if c not in df.columns]
