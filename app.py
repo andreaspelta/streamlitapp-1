@@ -36,6 +36,7 @@ from src.ui_components import (
     build_mapping_editor,
 )
 from src.kpi import render_kpi_dashboard
+from src.sankey import build_energy_sankey_chart, build_economic_sankey_chart
 
 TZ = "Europe/Rome"
 
@@ -51,7 +52,8 @@ page = st.sidebar.radio(
         "2) Scenario Builder",
         "3) Run Deterministic",
         "4) KPI Dashboard",
-        "5) Exports",
+        "5) Sankey Diagram",
+        "6) Exports",
         "About",
     ],
 )
@@ -390,8 +392,27 @@ elif page == "4) KPI Dashboard":
     st.header("KPI Dashboard")
     render_kpi_dashboard(S)
 
-# ---- Page 5: Exports
-elif page == "5) Exports":
+# ---- Page 5: Sankey Diagram
+elif page == "5) Sankey Diagram":
+    st.header("Sankey Diagram")
+    energy_fig, energy_note, energy_placeholder = build_energy_sankey_chart(S)
+    st.subheader("Energy flows")
+    if energy_placeholder:
+        st.info(energy_note)
+    else:
+        st.caption(energy_note)
+    st.plotly_chart(energy_fig, use_container_width=True)
+
+    economic_fig, economic_note, economic_placeholder = build_economic_sankey_chart(S)
+    st.subheader("Economic flows")
+    if economic_placeholder:
+        st.info(economic_note)
+    else:
+        st.caption(economic_note)
+    st.plotly_chart(economic_fig, use_container_width=True)
+
+# ---- Page 6: Exports
+elif page == "6) Exports":
     st.header("Exports")
     if S.result is None:
         warn_box("Run the deterministic engine before exporting.")
