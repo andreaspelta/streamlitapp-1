@@ -210,13 +210,13 @@ def _read_cluster_template(file: IO, label: str) -> pd.DataFrame:
 
 
 def read_household_template(file: IO) -> pd.DataFrame:
-    """Read deterministic household cluster medians (24×6)."""
+    """Read deterministic household cluster medians (24×12)."""
 
     return _read_cluster_template(file, "HH")
 
 
 def read_shop_template(file: IO) -> pd.DataFrame:
-    """Read deterministic shop cluster medians (24×6)."""
+    """Read deterministic shop cluster medians (24×12)."""
 
     return _read_cluster_template(file, "SHOP")
 
