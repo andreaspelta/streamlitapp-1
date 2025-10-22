@@ -1,118 +1,108 @@
-import numpy as np
 import pandas as pd
 import streamlit as st
-
-from typing import Dict, Any
 
 from .state import AppState
 
 
-def _px():
-    import plotly.express as px
+def _safe_ratio(num: float, den: float) -> float:
+    if den <= 0:
+        return 0.0
+    return float(num) / float(den)
 
-    return px
 
-def _stats(x: np.ndarray) -> Dict[str, float]:
-    x = np.asarray(x, dtype=float)
-    x = x[np.isfinite(x)]
-    if x.size == 0:
-        return dict(mean=np.nan, sd=np.nan, p05=np.nan, p10=np.nan, p50=np.nan, p90=np.nan, p95=np.nan)
-    return dict(
-        mean=float(np.mean(x)),
-        sd=float(np.std(x, ddof=1) if x.size>1 else 0.0),
-        p05=float(np.percentile(x,5)), p10=float(np.percentile(x,10)),
-        p50=float(np.percentile(x,50)), p90=float(np.percentile(x,90)),
-        p95=float(np.percentile(x,95))
-    )
+def compute_kpi_summary(S: AppState) -> pd.DataFrame:
+    if S.result is None:
+        return pd.DataFrame(columns=["KPI", "unit", "value"])
 
-def compute_kpi_distributions(S: AppState):
-    mc = S.mc
-    m_hh = mc["matched_hh"]; m_sh = mc["matched_shop"]
-    imp_hh = mc["import_hh"]; imp_sh = mc["import_shop"]
-    exp = mc["export"]; rev = mc["pros_rev"]; cost = mc["cons_cost"]
-    pv = mc["pv_gen"]; cons = mc["cons_total"]
-    default = np.zeros_like(pv)
-    pros_demand = mc.get("pros_demand", default)
-    surplus_shared = mc.get("surplus_shared", default)
-    hh_demand = mc.get("hh_demand", default)
-    shop_demand = mc.get("shop_demand", default)
-    base = mc["cons_baseline"]
-    plat_gap = mc["platform_gap"]; fees = mc["platform_fees"]; fixed = mc["platform_fixed"]
-    plat_margin = mc["platform_margin"]
+    totals = S.result.totals
 
-    # Rates
-    coverage_total = np.divide(m_hh+m_sh, cons, out=np.zeros_like(cons), where=cons>0)*100
-    coverage_hh = np.divide(m_hh, m_hh+imp_hh, out=np.zeros_like(m_hh), where=(m_hh+imp_hh)>0)*100
-    coverage_sh = np.divide(m_sh, m_sh+imp_sh, out=np.zeros_like(m_sh), where=(m_sh+imp_sh)>0)*100
-    autarky_total = (1.0 - np.divide(imp_hh+imp_sh, cons, out=np.zeros_like(cons), where=cons>0))*100
-    autarky_hh = (1.0 - np.divide(imp_hh, m_hh+imp_hh, out=np.zeros_like(imp_hh), where=(m_hh+imp_hh)>0))*100
-    autarky_sh = (1.0 - np.divide(imp_sh, m_sh+imp_sh, out=np.zeros_like(imp_sh), where=(m_sh+imp_sh)>0))*100
-    pv_util = np.divide(m_hh+m_sh, pv, out=np.zeros_like(pv), where=pv>0)*100
-    export_ratio = np.divide(exp, pv, out=np.zeros_like(exp), where=pv>0)*100
+    matched_hh = totals.get("matched_hh", 0.0)
+    matched_shop = totals.get("matched_shop", 0.0)
+    import_hh = totals.get("import_hh", 0.0)
+    import_shop = totals.get("import_shop", 0.0)
+    pv_gen = totals.get("pv_gen", 0.0)
+    hh_demand = totals.get("hh_demand", 0.0)
+    shop_demand = totals.get("shop_demand", 0.0)
+    export = totals.get("export", 0.0)
+    consumer_cost = totals.get("cons_cost", 0.0)
+    consumer_base = totals.get("cons_baseline", 0.0)
+    savings = consumer_base - consumer_cost
 
-    savings = base - cost
-    savings_pct = np.divide(savings, base, out=np.zeros_like(savings), where=base>0)*100
+    coverage_total = _safe_ratio(matched_hh + matched_shop, hh_demand + shop_demand) * 100
+    coverage_hh = _safe_ratio(matched_hh, matched_hh + import_hh) * 100
+    coverage_shop = _safe_ratio(matched_shop, matched_shop + import_shop) * 100
 
-    dists = {
-        "PV generation (kWh)": pv,
-        "PV demand (kWh)": pros_demand,
-        "Surplus (kWh)": surplus_shared,
-        "HH demand (kWh)": hh_demand,
-        "Shop demand (kWh)": shop_demand,
-        "Matched to HH (kWh)": m_hh,
-        "Matched to SHOP (kWh)": m_sh,
-        "Exports (kWh)": exp,
-        "Imports HH (kWh)": imp_hh,
-        "Imports SHOP (kWh)": imp_sh,
-        "Community demand (kWh)": cons,
+    pv_util = _safe_ratio(matched_hh + matched_shop, pv_gen) * 100
+    export_ratio = _safe_ratio(export, pv_gen) * 100
 
-        "Coverage — total (%)": coverage_total,
-        "Coverage — HH (%)": coverage_hh,
-        "Coverage — SHOP (%)": coverage_sh,
-        "PV utilization (%)": pv_util,
-        "Export ratio (%)": export_ratio,
-        "Autarky — total (%)": autarky_total,
-        "Autarky — HH (%)": autarky_hh,
-        "Autarky — SHOP (%)": autarky_sh,
+    autarky_total = (1.0 - _safe_ratio(import_hh + import_shop, hh_demand + shop_demand)) * 100
+    autarky_hh = (1.0 - _safe_ratio(import_hh, matched_hh + import_hh)) * 100
+    autarky_shop = (1.0 - _safe_ratio(import_shop, matched_shop + import_shop)) * 100
 
-        "Prosumer revenue (€)": rev,
-        "Consumer baseline (€)": base,
-        "Consumer cost — total (€)": cost,
-        "Consumer savings (€)": savings,
-        "Consumer savings (%)": savings_pct,
-        "Platform gap revenue (€)": plat_gap,
-        "Platform fees (€)": fees,
-        "Platform fixed cost (€)": fixed,
-        "Platform margin (€)": plat_margin,
-    }
+    savings_pct = _safe_ratio(savings, consumer_base) * 100
 
-    rows = []
-    for k, v in dists.items():
-        unit = "%" if "(%)" in k else ("€" if "€" in k else "kWh")
-        stt = _stats(np.asarray(v))
-        stt.update({"KPI": k.replace(" (%)","").replace(" (€)",""), "unit": unit})
-        rows.append(stt)
-    summary = pd.DataFrame(rows)[["KPI","unit","mean","sd","p05","p10","p50","p90","p95"]]
-    return dists, summary
+    rows = [
+        ("PV generation", "kWh", pv_gen),
+        ("Prosumer demand", "kWh", totals.get("pros_demand", 0.0)),
+        ("HH demand", "kWh", hh_demand),
+        ("Shop demand", "kWh", shop_demand),
+        ("Matched to HH", "kWh", matched_hh),
+        ("Matched to SHOP", "kWh", matched_shop),
+        ("Exports", "kWh", export),
+        ("Imports HH", "kWh", import_hh),
+        ("Imports SHOP", "kWh", import_shop),
+        ("Community demand", "kWh", hh_demand + shop_demand),
+        ("Coverage — total", "%", coverage_total),
+        ("Coverage — HH", "%", coverage_hh),
+        ("Coverage — SHOP", "%", coverage_shop),
+        ("PV utilization", "%", pv_util),
+        ("Export ratio", "%", export_ratio),
+        ("Autarky — total", "%", autarky_total),
+        ("Autarky — HH", "%", autarky_hh),
+        ("Autarky — SHOP", "%", autarky_shop),
+        ("Prosumer revenue", "€", totals.get("pros_rev", 0.0)),
+        ("Consumer baseline", "€", consumer_base),
+        ("Consumer cost — total", "€", consumer_cost),
+        ("Consumer savings", "€", savings),
+        ("Consumer savings", "%", savings_pct),
+        ("Platform gap revenue", "€", totals.get("platform_gap", 0.0)),
+        ("Platform fees", "€", totals.get("platform_fees", 0.0)),
+        ("Platform fixed cost", "€", totals.get("platform_fixed", 0.0)),
+        ("Platform margin", "€", totals.get("platform_margin", 0.0)),
+    ]
+
+    df = pd.DataFrame(rows, columns=["KPI", "unit", "value"])
+    return df
+
 
 def render_kpi_dashboard(S: AppState):
-    dists, summary = compute_kpi_distributions(S)
+    summary = compute_kpi_summary(S)
+    if summary.empty:
+        st.warning("Run the deterministic scenario to view KPIs.")
+        return
 
-    st.subheader("Headline medians")
-    med = summary.set_index("KPI")["p50"]
-    keep = [x for x in ["Coverage — total","PV utilization","Autarky — total","Consumer savings (%)"] if x in med.index]
-    if keep:
-        px = _px()
-        fig = px.bar(med[keep], title="Headline medians")
-        st.plotly_chart(fig, use_container_width=True)
+    st.subheader("Headline rates")
+    highlight = (
+        summary[summary["unit"] == "%"].set_index("KPI").reindex(
+            [
+                "Coverage — total",
+                "PV utilization",
+                "Autarky — total",
+                "Consumer savings",
+            ]
+        )
+    ).dropna()
+    if not highlight.empty:
+        cols = st.columns(len(highlight))
+        for col, (kpi, row) in zip(cols, highlight.iterrows()):
+            with col:
+                st.metric(kpi, f"{row['value']:.2f}%")
 
-    st.subheader("Energy (kWh)")
-    st.dataframe(summary[summary["unit"]=="kWh"].set_index("KPI").round(3))
+    st.subheader("Energy balances (kWh)")
+    st.dataframe(summary[summary["unit"] == "kWh"].set_index("KPI").round(3))
 
-    st.subheader("Energy Rates (%)")
-    st.dataframe(summary[summary["unit"]=="%"].set_index("KPI").round(2))
+    st.subheader("Rates (%)")
+    st.dataframe(summary[summary["unit"] == "%"].set_index("KPI").round(2))
 
     st.subheader("Economics (€)")
-    st.dataframe(summary[summary["unit"]=="€"].set_index("KPI").round(2))
-
-    st.caption("All statistics are Monte-Carlo distributions: mean, sd, p05, p10, p50, p90, p95.")
+    st.dataframe(summary[summary["unit"] == "€"].set_index("KPI").round(2))

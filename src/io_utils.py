@@ -6,6 +6,8 @@ import pandas as pd
 
 from pandas.api import types as pdt
 
+from .clustering import CLUSTERS
+
 
 def _to_positive_numeric(series: pd.Series) -> pd.Series:
     """Coerce a series to numeric, keeping only strictly positive values."""
@@ -162,18 +164,61 @@ def read_shops_excel(file: IO) -> pd.DataFrame:
     return hourly.sort_values(["timestamp", "shop_id"]).reset_index(drop=True)
 
 def read_pv_excel(file: IO) -> pd.DataFrame:
+    """Read deterministic PV template (timestamp, kWh_per_kWp)."""
+
     buffer = _reset_file_like(file)
     df = pd.read_excel(buffer)
     df.columns = [c.strip() for c in df.columns]
-    required_cols = {"timestamp", "energy_kWh_per_kWp"}
+    required_cols = {"timestamp", "kWh_per_kWp"}
     if not required_cols.issubset(df.columns):
         missing = required_cols.difference(df.columns)
-        raise ValueError(f"[PV] Excel must contain columns: {', '.join(sorted(missing))}")
-    df = df[["timestamp", "energy_kWh_per_kWp"]].rename(columns={"energy_kWh_per_kWp": "kWh_per_kWp"})
+        raise ValueError(
+            f"[PV] Excel must contain columns: {', '.join(sorted(missing))}"
+        )
+    df = df[["timestamp", "kWh_per_kWp"]]
     df = _ensure_ts_local(df, "timestamp").sort_values("timestamp")
     df["kWh_per_kWp"] = _to_non_negative_numeric(df["kWh_per_kWp"])
-    df = df.dropna(subset=["kWh_per_kWp"])
+    if df["kWh_per_kWp"].isna().any():
+        raise ValueError("[PV] Some hourly kWh_per_kWp entries are missing or invalid.")
     return df.reset_index(drop=True)
+
+
+def _read_cluster_template(file: IO, label: str) -> pd.DataFrame:
+    buffer = _reset_file_like(file)
+    df = pd.read_excel(buffer)
+    df.columns = [c.strip() for c in df.columns]
+    if "hour" not in df.columns:
+        raise ValueError(f"[{label}] Missing 'hour' column")
+    missing = [c for c in CLUSTERS if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"[{label}] Missing cluster columns: {', '.join(missing)}"
+        )
+    df["hour"] = pd.to_numeric(df["hour"], errors="coerce").astype(pd.Int64Dtype())
+    if df["hour"].isna().any():
+        raise ValueError(f"[{label}] Hour column must contain integers 0-23")
+    df = df.dropna(subset=["hour"])
+    hours = df["hour"].astype(int)
+    if set(hours) != set(range(24)):
+        raise ValueError(f"[{label}] Provide all 24 hours (0-23) exactly once")
+    med = (
+        df.set_index("hour")[CLUSTERS]
+        .apply(pd.to_numeric, errors="coerce")
+        .fillna(0.0)
+    )
+    return med.reindex(range(24))
+
+
+def read_household_template(file: IO) -> pd.DataFrame:
+    """Read deterministic household cluster medians (24×6)."""
+
+    return _read_cluster_template(file, "HH")
+
+
+def read_shop_template(file: IO) -> pd.DataFrame:
+    """Read deterministic shop cluster medians (24×6)."""
+
+    return _read_cluster_template(file, "SHOP")
 
 def read_zonal_csv(file: IO) -> pd.DataFrame:
     buffer = _reset_file_like(file)

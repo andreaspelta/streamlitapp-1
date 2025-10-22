@@ -7,6 +7,8 @@ import pandas as pd
 
 from .state import AppState
 from .io_utils import TZ
+from .clustering import CLUSTERS
+from .kpi import compute_kpi_summary
 
 
 def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
@@ -14,86 +16,64 @@ def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
 
     return idx.strftime("%Y-%m-%d %H:%M:%S%z")
 
-def _normalize_ts_arg(value) -> str:
-    if isinstance(value, pd.Timestamp):
-        return value.isoformat()
-    return str(value)
+def _profile_template_dataframe() -> pd.DataFrame:
+    df = pd.DataFrame({"hour": np.arange(24, dtype=int)})
+    for cluster in CLUSTERS:
+        df[cluster] = np.nan
+    return df
+
+
+@lru_cache(maxsize=32)
+def _build_profile_template_cached(year: int, label: str) -> bytes:
+    df = _profile_template_dataframe()
+    out = io.BytesIO()
+    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
+        sheet = f"{label}_median"
+        df.to_excel(xl, sheet_name=sheet, index=False, startrow=3)
+        ws = xl.sheets[sheet]
+        ws.write(0, 0, f"Deterministic {label} template — year {year}")
+        ws.write(1, 0, "Paste the median hourly demand (kWh) for each cluster.")
+        ws.write(2, 0, "Hour 0 corresponds to 00:00-01:00 local time.")
+    return out.getvalue()
+
+
+def build_household_template(year: int) -> bytes:
+    """Excel template for household cluster medians (24×6 grid)."""
+
+    return _build_profile_template_cached(int(year), "HH")
+
+
+def build_shop_template(year: int) -> bytes:
+    """Excel template for shop cluster medians (24×6 grid)."""
+
+    return _build_profile_template_cached(int(year), "SHOP")
 
 
 @lru_cache(maxsize=16)
-def _build_household_template_cached(start: str, end: str) -> bytes:
-    rng = pd.date_range(start=start, end=end, freq="15min", tz=TZ)
-    df = pd.DataFrame(
-        {
-            "timestamp": rng.strftime("%Y-%m-%d %H:%M:%S%z"),
-            "Power_kW": np.nan,
-        }
-    )
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
-        df.to_excel(xl, sheet_name="HH01", index=False)
-    return out.getvalue()
-
-
-def build_household_template(start="2022-01-01 00:30", end="2023-01-01 00:00") -> bytes:
-    """Create a 15-minute household template workbook for 2022."""
-
-    return _build_household_template_cached(
-        _normalize_ts_arg(start), _normalize_ts_arg(end)
-    )
-
-
-@lru_cache(maxsize=8)
-def _build_shop_template_cached(start: str, end: str, sheets: int) -> bytes:
-    rng = pd.date_range(start=start, end=end, freq="15min", tz=TZ, inclusive="left")
+def _build_pv_excel_template_cached(year: int) -> bytes:
+    start = pd.Timestamp(f"{int(year)}-01-01 00:00", tz=TZ)
+    end = pd.Timestamp(f"{int(year) + 1}-01-01 00:00", tz=TZ)
+    rng = pd.date_range(start=start, end=end, freq="h", inclusive="left")
     df = pd.DataFrame(
         {
             "timestamp": _format_timestamp_index(rng),
-            "ActiveEnergy_Generale": np.nan,
+            "kWh_per_kWp": np.nan,
         }
     )
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
-        for sheet_idx in range(1, sheets + 1):
-            sheet_name = f"Shop{sheet_idx:02d}"
-            df.to_excel(xl, sheet_name=sheet_name, index=False)
+        sheet = "PV_per_kWp"
+        df.to_excel(xl, sheet_name=sheet, index=False, startrow=2)
+        ws = xl.sheets[sheet]
+        ws.write(0, 0, f"PV template — hourly per-kWp yield for {year}")
+        ws.write(1, 0, "Fill kWh/kWp in the second column.")
     return out.getvalue()
 
 
-def build_shop_template(
-    start="2022-09-15 00:00", end="2023-09-15 00:00", sheets: int = 20
-) -> bytes:
-    """Create a 15-minute small shops template spanning one year across multiple sheets."""
+def build_pv_excel_template(year: int) -> bytes:
+    """Create an Excel template for PV per-kWp hourly data for the selected year."""
 
-    return _build_shop_template_cached(
-        _normalize_ts_arg(start), _normalize_ts_arg(end), int(sheets)
-    )
-
-
-@lru_cache(maxsize=16)
-def _build_pv_excel_template_cached(start: str, end: str) -> bytes:
-    rng = pd.date_range(start=start, end=end, freq="h", tz=TZ)
-    df = pd.DataFrame(
-        {
-            "timestamp": _format_timestamp_index(rng),
-            "energy_kWh_per_kWp": np.nan,
-        }
-    )
-
-    out = io.BytesIO()
-    with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
-        df.to_excel(xl, sheet_name="PV_per_kWp", index=False)
-    return out.getvalue()
-
-
-def build_pv_excel_template(
-    start="2018-01-01 00:30", end="2023-12-31 23:30"
-) -> bytes:
-    """Create an Excel template for PV per-kWp hourly data."""
-
-    return _build_pv_excel_template_cached(
-        _normalize_ts_arg(start), _normalize_ts_arg(end)
-    )
+    return _build_pv_excel_template_cached(int(year))
 
 
 @lru_cache(maxsize=16)
@@ -257,29 +237,28 @@ def build_calibration_workbook_pv(S: AppState) -> bytes:
                 )
     return out.getvalue()
 
-def export_kpi_quantiles(summary_df: pd.DataFrame) -> bytes:
-    # Parquet
-    out = io.BytesIO()
-    summary_df.to_parquet(out, index=False)
-    return out.getvalue()
-
-def export_kpi_samples(dists: Dict[str, any]) -> str:
-    # CSV of samples, columns=KPI, rows=scenarios
-    df = pd.DataFrame({k: pd.Series(v).astype(float) for k, v in dists.items()})
-    return df.to_csv(index=False)
-
 def export_all_in_one_xlsx(S: AppState) -> bytes:
-    from .kpi import compute_kpi_distributions
-    dists, summary = compute_kpi_distributions(S)
+    if S.result is None:
+        raise ValueError("Run the deterministic scenario before exporting.")
+
+    summary = compute_kpi_summary(S)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
         summary.to_excel(xl, sheet_name="kpi_summary", index=False)
-        pd.DataFrame({k: pd.Series(v) for k, v in dists.items()}).to_excel(xl, sheet_name="kpi_samples", index=False)
-        md = {
-            "S": [S.S], "seed":[S.seed], "hh_gift":[S.hh_gift],
-            "N_P":[len(S.prosumer_ids)], "N_HH":[len(S.hh_ids)], "N_SHOP":[len(S.shop_ids)]
-        }
-        pd.DataFrame(md).to_excel(xl, sheet_name="metadata", index=False)
+        S.result.prosumer_summary.to_excel(xl, sheet_name="prosumer_summary", index=False)
+        S.result.household_summary.to_excel(xl, sheet_name="household_summary", index=False)
+        S.result.shop_summary.to_excel(xl, sheet_name="shop_summary", index=False)
+        S.result.community_hourly.to_excel(xl, sheet_name="community_hourly", index=False)
+        S.result.prices.to_excel(xl, sheet_name="prices", index=False)
+        meta = pd.DataFrame({
+            "year": [S.year],
+            "hh_gift": [S.hh_gift],
+            "efficiency": [S.efficiency],
+            "N_P": [len(S.prosumer_ids)],
+            "N_HH": [len(S.hh_ids)],
+            "N_SHOP": [len(S.shop_ids)],
+        })
+        meta.to_excel(xl, sheet_name="metadata", index=False)
     return out.getvalue()
 
 def export_hourly_facts(S, fmt="csv"):
