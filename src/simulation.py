@@ -50,7 +50,7 @@ def equal_level_fill(supply: float, demands: np.ndarray) -> (np.ndarray, float):
 
 
 def build_hourly_profile(hours: pd.DatetimeIndex, medians: pd.DataFrame) -> pd.Series:
-    """Expand cluster median table (24×6) to an hourly template."""
+    """Expand cluster median table (24×12) to an hourly template."""
 
     medians = medians.copy()
     medians.index = medians.index.astype(int)

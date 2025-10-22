@@ -38,13 +38,13 @@ def _build_profile_template_cached(year: int, label: str) -> bytes:
 
 
 def build_household_template(year: int) -> bytes:
-    """Excel template for household cluster medians (24×6 grid)."""
+    """Excel template for household cluster medians (24×12 grid)."""
 
     return _build_profile_template_cached(int(year), "HH")
 
 
 def build_shop_template(year: int) -> bytes:
-    """Excel template for shop cluster medians (24×6 grid)."""
+    """Excel template for shop cluster medians (24×12 grid)."""
 
     return _build_profile_template_cached(int(year), "SHOP")
 

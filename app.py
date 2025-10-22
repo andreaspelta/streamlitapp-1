@@ -125,7 +125,7 @@ if page == "1) Templates & Inputs":
                     S.pv_series = None
                     S.pv_file_digest = None
 
-    st.subheader("Household median profile (6 clusters)")
+    st.subheader("Household median profile (12 clusters)")
     st.download_button(
         "Download HH template",
         build_household_template(S.year),
@@ -150,7 +150,7 @@ if page == "1) Templates & Inputs":
                 S.hh_series = None
                 S.hh_file_digest = None
 
-    st.subheader("Shop median profile (6 clusters)")
+    st.subheader("Shop median profile (12 clusters)")
     st.download_button(
         "Download SHOP template",
         build_shop_template(S.year),
@@ -415,8 +415,9 @@ else:
     st.markdown(
         """
         This version replaces the Monte Carlo engine with a single deterministic year.
-        Users provide per-kWp PV generation and median load templates for six seasonal/weekend
-        clusters. Actor-level weights scale these templates to actual demand and supply.
+        Users provide per-kWp PV generation and median load templates for twelve
+        season/day-type clusters (Autumn/Spring/Summer/Winter × Sunday/Saturday/Weekday).
+        Actor-level weights scale these templates to actual demand and supply.
 
         Matching, pricing, and cash-flow rules follow the original VEC specification: the
         water-filling algorithm first serves designated households, then allocates provincial

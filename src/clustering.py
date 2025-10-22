@@ -1,35 +1,61 @@
 import pandas as pd
 
-# Updated clustering scheme — deterministic templates rely on six clusters only.
+# Deterministic templates now use 12 season/day-type combinations.
 CLUSTERS = [
-    "Winter-Weekday",
-    "Winter-Weekend",
-    "Shoulder-Weekday",
-    "Shoulder-Weekend",
+    "Autumn-Sunday",
+    "Autumn-Saturday",
+    "Autumn-Weekday",
+    "Spring-Sunday",
+    "Spring-Saturday",
+    "Spring-Weekday",
+    "Summer-Sunday",
+    "Summer-Saturday",
     "Summer-Weekday",
-    "Summer-Weekend",
+    "Winter-Sunday",
+    "Winter-Saturday",
+    "Winter-Weekday",
 ]
+
+_SEASON_RANGES = {
+    "Winter": ((12, 21), (3, 20)),
+    "Spring": ((3, 21), (6, 20)),
+    "Summer": ((6, 21), (9, 20)),
+    "Autumn": ((9, 21), (12, 20)),
+}
+
+
+def _in_range(month: int, day: int, start: tuple[int, int], end: tuple[int, int]) -> bool:
+    """Return True if (month, day) falls within the inclusive seasonal window."""
+
+    if start <= end:
+        return (month, day) >= start and (month, day) <= end
+    return (month, day) >= start or (month, day) <= end
 
 
 def season_of(ts: pd.Timestamp) -> str:
-    """Collapse the calendar into Winter/Summer/Shoulder seasons."""
+    """Map a timestamp to one of the four meteorological seasons used by the app."""
 
-    m = ts.month
-    if m in (12, 1, 2):
-        return "Winter"
-    if m in (6, 7, 8):
-        return "Summer"
-    return "Shoulder"
+    month_day = (ts.month, ts.day)
+    for season, (start, end) in _SEASON_RANGES.items():
+        if _in_range(month_day[0], month_day[1], start, end):
+            return season
+    # Fallback: default to Winter to keep behaviour deterministic.
+    return "Winter"
 
 
 def daytype_of(ts: pd.Timestamp) -> str:
-    """Two day-types only: Weekday vs Weekend/Holiday."""
+    """Return the day-type label: Sunday, Saturday, or Weekday."""
 
-    return "Weekend" if ts.weekday() >= 5 else "Weekday"
+    weekday = ts.weekday()
+    if weekday == 6:
+        return "Sunday"
+    if weekday == 5:
+        return "Saturday"
+    return "Weekday"
 
 
 def hh_shop_cluster(ts: pd.Timestamp) -> str:
-    """Return one of the six deterministic clusters for the given timestamp."""
+    """Return one of the twelve deterministic clusters for the given timestamp."""
 
     cluster = f"{season_of(ts)}-{daytype_of(ts)}"
     if cluster not in CLUSTERS:
