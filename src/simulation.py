@@ -226,13 +226,27 @@ def run_deterministic(
         shop_import[:, h] = shop_need
         pros_exports[:, h] = np.maximum(residual, 0.0)
 
-    pros_rev = (
-        pros_self * ret_HH[None, :]
-        + pros_matched_hh * Ppros_HH[None, :]
-        + pros_matched_shop * Ppros_SH[None, :]
-        + pros_exports * P_unm[None, :]
-        - pros_import * ret_HH[None, :]
-    ) if nP else np.zeros((0, n_hours))
+    if nP:
+        pros_rev_self = pros_self * ret_HH[None, :]
+        pros_rev_matched = (
+            pros_matched_hh * Ppros_HH[None, :]
+            + pros_matched_shop * Ppros_SH[None, :]
+        )
+        pros_rev_export = pros_exports * P_unm[None, :]
+        pros_rev_import_cost = pros_import * ret_HH[None, :]
+        pros_rev = pros_rev_self + pros_rev_matched + pros_rev_export - pros_rev_import_cost
+        pros_rev_no_share = (
+            pros_rev_self
+            + (pros_matched_hh + pros_matched_shop + pros_exports) * P_unm[None, :]
+            - pros_rev_import_cost
+        )
+    else:
+        pros_rev_self = np.zeros((0, n_hours))
+        pros_rev_matched = np.zeros((0, n_hours))
+        pros_rev_export = np.zeros((0, n_hours))
+        pros_rev_import_cost = np.zeros((0, n_hours))
+        pros_rev = np.zeros((0, n_hours))
+        pros_rev_no_share = np.zeros((0, n_hours))
 
     hh_cost = (
         hh_matched * Pcons_HH[None, :]
@@ -265,7 +279,13 @@ def run_deterministic(
         export=float(pros_exports.sum()),
         pros_rev=float(pros_rev.sum()),
         cons_cost=float(hh_cost.sum() + shop_cost.sum()),
+        cons_cost_hh=float(hh_cost.sum()),
+        cons_cost_shop=float(shop_cost.sum()),
         cons_baseline=float(hh_baseline.sum() + shop_baseline.sum()),
+        cons_baseline_hh=float(hh_baseline.sum()),
+        cons_baseline_shop=float(shop_baseline.sum()),
+        cons_savings_hh=float(hh_baseline.sum() - hh_cost.sum()),
+        cons_savings_shop=float(shop_baseline.sum() - shop_cost.sum()),
         platform_gap=float(platform_gap.sum()),
         platform_fees=float(platform_fees),
         platform_fixed=float(platform_fixed),
@@ -276,6 +296,9 @@ def run_deterministic(
         shop_demand=float(shop_load.sum()),
         surplus_shared=float(hh_matched.sum() + shop_matched.sum()),
         pros_import=float(pros_import.sum()),
+        pros_rev_matched=float(pros_rev_matched.sum()),
+        pros_rev_export=float(pros_rev_export.sum()),
+        pros_rev_no_share=float(pros_rev_no_share.sum()),
     )
 
     prosumer_hourly = pd.DataFrame({
