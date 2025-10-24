@@ -38,7 +38,6 @@ class AppState:
     spread_split_SH: float = 0.5
     platform_gap_SH: float = 0.3
     delta_unm: float = 0.0
-    loss_factor: float = 0.05
 
     f_pros: float = 2.0
     f_hh: float = 1.0

@@ -407,7 +407,7 @@ def run_monte_carlo(
                             surplus_shared += taken
                             rev += taken * layer["Ppros_HH"]
                             cost += taken * layer["Pcons_HH"]
-                            gap_eur += (taken * (1 - layer["loss_factor"])) * layer["gap_HH"]
+                            gap_eur += taken * layer["gap_HH"]
 
                 residuals.append(surplus)
 
@@ -422,7 +422,7 @@ def run_monte_carlo(
                     surplus_shared += taken_s
                     rev += taken_s * layer["Ppros_SH"]
                     cost += taken_s * layer["Pcons_SH"]
-                    gap_eur += (taken_s * (1 - layer["loss_factor"])) * layer["gap_SH"]
+                    gap_eur += taken_s * layer["gap_SH"]
                     pool = resid_pool
 
             imp_hh += U_hh.sum()
