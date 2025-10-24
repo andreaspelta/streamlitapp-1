@@ -177,7 +177,6 @@ def run_deterministic(
     Pcons_SH = np.array([rec["Pcons_SH"] for rec in price_records])
     gap_SH = np.array([rec["gap_SH"] for rec in price_records])
     P_unm = np.array([rec["P_unm"] for rec in price_records])
-    loss_factor = float(price_records[0].get("loss_factor", 0.0)) if price_records else 0.0
 
     for h in range(n_hours):
         hh_need = hh_load[:, h].copy()
@@ -260,8 +259,8 @@ def run_deterministic(
     ) if nS else np.zeros((0, n_hours))
     shop_baseline = shop_load * ret_SH[None, :] if nS else np.zeros((0, n_hours))
 
-    gap_hh = hh_matched.sum(axis=0) * (1 - loss_factor) * gap_HH if nH else np.zeros(n_hours)
-    gap_shop = shop_matched.sum(axis=0) * (1 - loss_factor) * gap_SH if nS else np.zeros(n_hours)
+    gap_hh = hh_matched.sum(axis=0) * gap_HH if nH else np.zeros(n_hours)
+    gap_shop = shop_matched.sum(axis=0) * gap_SH if nS else np.zeros(n_hours)
     platform_gap = gap_hh + gap_shop
 
     platform_fees = 12.0 * (

@@ -256,7 +256,6 @@ elif page == "2) Scenario Builder":
         )
     with col_flags:
         S.hh_gift = st.checkbox("HH-Gift (matched HH energy at zero €)", value=S.hh_gift)
-        S.loss_factor = st.slider("Loss factor (platform gap loss)", 0.0, 1.0, value=S.loss_factor, step=0.01)
 
     st.subheader("Pricing parameters")
     col_price_a, col_price_b, col_price_c = st.columns(3)
@@ -355,7 +354,6 @@ elif page == "3) Run Deterministic":
                 spread_split_sh=S.spread_split_SH,
                 platform_gap_sh=S.platform_gap_SH,
                 delta_unm=S.delta_unm,
-                loss_factor=S.loss_factor,
                 hh_gift=S.hh_gift,
             )
             fees = {

@@ -10,7 +10,6 @@ def build_price_layers(
     spread_split_sh,
     platform_gap_sh,
     delta_unm,
-    loss_factor,
     hh_gift,
 ):
     """
@@ -23,7 +22,7 @@ def build_price_layers(
       - Ppros_HH, Pcons_HH, gap_HH
       - Ppros_SH, Pcons_SH, gap_SH
       - P_unm (€/kWh) for exports = max(zonal_kWh + δ_unm, 0)
-      - loss_factor (float), hh_gift (bool)
+      - hh_gift (bool)
     """
     def layer(zonal_eur_per_mwh, pun_kwh):
         z = float(zonal_eur_per_mwh) / 1000.0  # €/kWh
@@ -71,7 +70,6 @@ def build_price_layers(
             "Ppros_HH": Ppros_HH, "Pcons_HH": Pcons_HH, "gap_HH": gap_HH,
             "Ppros_SH": Ppros_SH, "Pcons_SH": Pcons_SH, "gap_SH": gap_SH,
             "P_unm": P_unm,
-            "loss_factor": float(loss_factor),
             "hh_gift": bool(hh_gift),
         }
     return layer

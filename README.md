@@ -6,7 +6,7 @@ This repository hosts a complete Streamlit app that models a **Virtual Energy Co
 3) Run a **Monte Carlo** simulation aligned to your **price calendar**  
 4) Explore **KPI distributions** and **download** calibration workbooks, summary tables, and raw samples
 
-> The app enforces the rules we agreed: negative-price override; HH-Gift; loss-factor on gap; spreads are year-constant scalars.
+> The app enforces the rules we agreed: negative-price override; HH-Gift; spreads are year-constant scalars.
 
 ## One-time setup (beginner friendly)
 
@@ -28,7 +28,7 @@ This repository hosts a complete Streamlit app that models a **Virtual Energy Co
 
 **Page 2 — Scenario Builder**  
 - Enter N_P, N_HH, N_SHOP; **seed** and **S** (number of scenarios).  
-- Enter economic scalars: spreads, α, φ, δ_unm, ℓ; fees and platform fixed cost.  
+- Enter economic scalars: spreads, α, φ, δ_unm; fees and platform fixed cost.
 - Enter **kWp per prosumer** and **manually map** each prosumer to a set of HH.  
 - **Validate scenario** (every HH must be assigned at least once; kWp ≥ 0).
 
@@ -47,7 +47,7 @@ This repository hosts a complete Streamlit app that models a **Virtual Energy Co
   - \(R_{HH,t} = \text{PUN}^{(m)}_{kWh} + s_{HH}\)
   - \(R_{SHOP,t} = \text{PUN}^{(m)}_{kWh} + s_{SHOP}\)
 
-All **spreads, lift shares (\(\alpha\)), gap shares (\(\phi\)), uplift \(\delta_{unm}\), loss factor \(\ell\), fees, and fixed costs** can be set to **zero** in the Scenario Builder.
+All **spreads, lift shares (\(\alpha\)), gap shares (\(\phi\)), uplift \(\delta_{unm}\), fees, and fixed costs** can be set to **zero** in the Scenario Builder.
 
 **Page 3 — Run Monte Carlo**  
 - The simulation uses the **price calendar** (hard fail if gaps).  
