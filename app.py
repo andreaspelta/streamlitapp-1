@@ -333,7 +333,7 @@ elif page == "3) Run Deterministic":
             prosumers_df = pd.DataFrame({
                 "prosumer_id": S.prosumer_ids,
                 "kWp": [S.kwp_map.get(pid, 0.0) for pid in S.prosumer_ids],
-                "w_self": [S.w_self_map.get(pid, 0.0) for pid in S.prosumer_ids],
+                "w_self": [S.w_self_map.get(pid, 1.0) for pid in S.prosumer_ids],
                 "province": [S.prosumer_province.get(pid, "Province-1") for pid in S.prosumer_ids],
             })
             households_df = pd.DataFrame({

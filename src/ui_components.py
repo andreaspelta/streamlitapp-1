@@ -38,7 +38,7 @@ def build_prosumer_table(
         {
             "prosumer_id": prosumer_ids,
             "kWp": [float(kwp_map.get(pid, 0.0)) for pid in prosumer_ids],
-            "w_self": [float(w_self_map.get(pid, 0.0)) for pid in prosumer_ids],
+            "w_self": [float(w_self_map.get(pid, 1.0)) for pid in prosumer_ids],
             "province": [province_map.get(pid, "Province-1") for pid in prosumer_ids],
         }
     )

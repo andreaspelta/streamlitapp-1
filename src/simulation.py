@@ -120,7 +120,7 @@ def run_deterministic(
     nS = len(shop_ids)
 
     kwp = prosumers["kWp"].astype(float).to_numpy() if nP else np.zeros(0)
-    w_self = prosumers.get("w_self", pd.Series(0, index=prosumers.index)).astype(float).to_numpy() if nP else np.zeros(0)
+    w_self = prosumers.get("w_self", pd.Series(1, index=prosumers.index)).astype(float).to_numpy() if nP else np.zeros(0)
     pros_province = prosumers.get("province", pd.Series("Province", index=prosumers.index)).astype(str).tolist()
 
     hh_weight = households.get("w_HH", pd.Series(0, index=households.index)).astype(float).to_numpy() if nH else np.zeros(0)
