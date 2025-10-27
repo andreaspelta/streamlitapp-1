@@ -282,14 +282,31 @@ def export_all_in_one_xlsx(S: AppState) -> bytes:
     summary = compute_kpi_summary(S)
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="xlsxwriter") as xl:
-        meta = pd.DataFrame({
-            "year": [S.year],
-            "hh_gift": [S.hh_gift],
-            "efficiency": [S.efficiency],
-            "N_P": [len(S.prosumer_ids)],
-            "N_HH": [len(S.hh_ids)],
-            "N_SHOP": [len(S.shop_ids)],
-        })
+        scenario_params = {
+            "year": S.year,
+            "N_P": len(S.prosumer_ids),
+            "N_HH": len(S.hh_ids),
+            "N_SHOP": len(S.shop_ids),
+            "efficiency": S.efficiency,
+            "hh_gift": S.hh_gift,
+            "s_HH": S.s_HH,
+            "spread_split_HH": S.spread_split_HH,
+            "platform_gap_HH": S.platform_gap_HH,
+            "s_SH": S.s_SH,
+            "spread_split_SH": S.spread_split_SH,
+            "platform_gap_SH": S.platform_gap_SH,
+            "delta_unm": S.delta_unm,
+            "f_pros": S.f_pros,
+            "f_hh": S.f_hh,
+            "f_shop": S.f_shop,
+            "platform_fixed": S.platform_fixed,
+        }
+        meta = pd.DataFrame(
+            {
+                "parameter": list(scenario_params.keys()),
+                "value": list(scenario_params.values()),
+            }
+        )
 
         tables = [
             ("kpi_summary", summary),
