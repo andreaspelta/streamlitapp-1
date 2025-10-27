@@ -227,10 +227,9 @@ def run_deterministic(
 
     if nP:
         pros_rev_self = pros_self * ret_HH[None, :]
-        pros_rev_matched = (
-            pros_matched_hh * Ppros_HH[None, :]
-            + pros_matched_shop * Ppros_SH[None, :]
-        )
+        pros_rev_matched_hh = pros_matched_hh * Ppros_HH[None, :]
+        pros_rev_matched_shop = pros_matched_shop * Ppros_SH[None, :]
+        pros_rev_matched = pros_rev_matched_hh + pros_rev_matched_shop
         pros_rev_export = pros_exports * P_unm[None, :]
         pros_rev_import_cost = pros_import * ret_HH[None, :]
         pros_rev = pros_rev_self + pros_rev_matched + pros_rev_export - pros_rev_import_cost
@@ -241,6 +240,8 @@ def run_deterministic(
         )
     else:
         pros_rev_self = np.zeros((0, n_hours))
+        pros_rev_matched_hh = np.zeros((0, n_hours))
+        pros_rev_matched_shop = np.zeros((0, n_hours))
         pros_rev_matched = np.zeros((0, n_hours))
         pros_rev_export = np.zeros((0, n_hours))
         pros_rev_import_cost = np.zeros((0, n_hours))
@@ -296,7 +297,11 @@ def run_deterministic(
         surplus_shared=float(hh_matched.sum() + shop_matched.sum()),
         pros_import=float(pros_import.sum()),
         pros_rev_matched=float(pros_rev_matched.sum()),
+        pros_rev_matched_hh=float(pros_rev_matched_hh.sum()),
+        pros_rev_matched_shop=float(pros_rev_matched_shop.sum()),
         pros_rev_export=float(pros_rev_export.sum()),
+        pros_rev_self=float(pros_rev_self.sum()),
+        pros_rev_import_cost=float(pros_rev_import_cost.sum()),
         pros_rev_no_share=float(pros_rev_no_share.sum()),
     )
 
@@ -306,15 +311,25 @@ def run_deterministic(
         "generation_kWh": pros_gen.reshape(-1),
         "load_kWh": pros_load.reshape(-1),
         "self_consumption_kWh": pros_self.reshape(-1),
+        "surplus_kWh": (pros_matched_hh + pros_matched_shop + pros_exports).reshape(-1),
         "imports_kWh": pros_import.reshape(-1),
         "matched_hh_kWh": pros_matched_hh.reshape(-1),
         "matched_shop_kWh": pros_matched_shop.reshape(-1),
         "exports_kWh": pros_exports.reshape(-1),
-        "revenue_EUR": pros_rev.reshape(-1),
+        "revenue_self_EUR": pros_rev_self.reshape(-1),
+        "revenue_matched_hh_EUR": pros_rev_matched_hh.reshape(-1),
+        "revenue_matched_shop_EUR": pros_rev_matched_shop.reshape(-1),
+        "revenue_export_EUR": pros_rev_export.reshape(-1),
+        "import_cost_EUR": pros_rev_import_cost.reshape(-1),
+        "community_revenue_EUR": pros_rev.reshape(-1),
+        "revenue_baseline_EUR": pros_rev_no_share.reshape(-1),
     }) if nP else pd.DataFrame(columns=[
         "prosumer_id", "timestamp", "generation_kWh", "load_kWh",
-        "self_consumption_kWh", "imports_kWh", "matched_hh_kWh",
-        "matched_shop_kWh", "exports_kWh", "revenue_EUR"
+        "self_consumption_kWh", "surplus_kWh", "imports_kWh", "matched_hh_kWh",
+        "matched_shop_kWh", "exports_kWh", "revenue_self_EUR",
+        "revenue_matched_hh_EUR", "revenue_matched_shop_EUR",
+        "revenue_export_EUR", "import_cost_EUR", "community_revenue_EUR",
+        "revenue_baseline_EUR"
     ])
 
     household_hourly = pd.DataFrame({
@@ -343,20 +358,68 @@ def run_deterministic(
         "import_kWh", "cost_EUR", "baseline_EUR"
     ])
 
-    prosumer_summary = prosumer_hourly.groupby("prosumer_id").agg({
-        "generation_kWh": "sum",
-        "load_kWh": "sum",
-        "self_consumption_kWh": "sum",
-        "imports_kWh": "sum",
-        "matched_hh_kWh": "sum",
-        "matched_shop_kWh": "sum",
-        "exports_kWh": "sum",
-        "revenue_EUR": "sum",
-    }).reset_index() if not prosumer_hourly.empty else pd.DataFrame(columns=[
-        "prosumer_id", "generation_kWh", "load_kWh", "self_consumption_kWh",
-        "imports_kWh", "matched_hh_kWh", "matched_shop_kWh",
-        "exports_kWh", "revenue_EUR"
-    ])
+    prosumer_summary = (
+        prosumer_hourly.groupby("prosumer_id").agg(
+            generation_kWh=("generation_kWh", "sum"),
+            load_kWh=("load_kWh", "sum"),
+            self_consumption_kWh=("self_consumption_kWh", "sum"),
+            surplus_kWh=("surplus_kWh", "sum"),
+            matched_hh_kWh=("matched_hh_kWh", "sum"),
+            matched_shop_kWh=("matched_shop_kWh", "sum"),
+            exports_kWh=("exports_kWh", "sum"),
+            imports_kWh=("imports_kWh", "sum"),
+            community_revenue_EUR=("community_revenue_EUR", "sum"),
+            revenue_self_EUR=("revenue_self_EUR", "sum"),
+            revenue_matched_hh_EUR=("revenue_matched_hh_EUR", "sum"),
+            revenue_matched_shop_EUR=("revenue_matched_shop_EUR", "sum"),
+            revenue_export_EUR=("revenue_export_EUR", "sum"),
+            import_cost_EUR=("import_cost_EUR", "sum"),
+            revenue_baseline_EUR=("revenue_baseline_EUR", "sum"),
+        )
+        .reset_index()
+        if not prosumer_hourly.empty
+        else pd.DataFrame(
+            columns=[
+                "prosumer_id",
+                "generation_kWh",
+                "load_kWh",
+                "self_consumption_kWh",
+                "surplus_kWh",
+                "matched_hh_kWh",
+                "matched_shop_kWh",
+                "exports_kWh",
+                "imports_kWh",
+                "community_revenue_EUR",
+                "revenue_self_EUR",
+                "revenue_matched_hh_EUR",
+                "revenue_matched_shop_EUR",
+                "revenue_export_EUR",
+                "import_cost_EUR",
+                "revenue_baseline_EUR",
+            ]
+        )
+    )
+    if not prosumer_summary.empty:
+        prosumer_summary = prosumer_summary[
+            [
+                "prosumer_id",
+                "generation_kWh",
+                "load_kWh",
+                "self_consumption_kWh",
+                "surplus_kWh",
+                "matched_hh_kWh",
+                "matched_shop_kWh",
+                "exports_kWh",
+                "imports_kWh",
+                "community_revenue_EUR",
+                "revenue_self_EUR",
+                "revenue_matched_hh_EUR",
+                "revenue_matched_shop_EUR",
+                "revenue_export_EUR",
+                "import_cost_EUR",
+                "revenue_baseline_EUR",
+            ]
+        ]
 
     household_summary = household_hourly.groupby("household_id").agg({
         "load_kWh": "sum",
