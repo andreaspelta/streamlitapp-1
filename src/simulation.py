@@ -454,6 +454,85 @@ def run_deterministic(
             0.0,
         )
 
+        # Baseline aggregates for prosumers
+        prosumer_index = pd.Index(prosumer_ids if nP else [])
+        baseline_zero = pd.Series(np.zeros(len(prosumer_index)), index=prosumer_index)
+        baseline_surplus_kWh = pd.Series(
+            (pros_matched_hh + pros_matched_shop + pros_exports).sum(axis=1),
+            index=prosumer_index,
+        ) if nP else baseline_zero
+        baseline_surplus_revenue = pd.Series(
+            ((pros_matched_hh + pros_matched_shop + pros_exports) * P_unm[None, :]).sum(axis=1),
+            index=prosumer_index,
+        ) if nP else baseline_zero
+        baseline_self_revenue = pd.Series(
+            pros_rev_self.sum(axis=1),
+            index=prosumer_index,
+        ) if nP else baseline_zero
+        baseline_import_cost = pd.Series(
+            pros_rev_import_cost.sum(axis=1),
+            index=prosumer_index,
+        ) if nP else baseline_zero
+        baseline_total_revenue = (
+            baseline_self_revenue + baseline_surplus_revenue - baseline_import_cost
+        ) if nP else baseline_zero
+
+        id_map = prosumer_summary["prosumer_id"]
+        prosumer_summary["generation_kWh_baseline"] = prosumer_summary["generation_kWh"]
+        prosumer_summary["load_kWh_baseline"] = prosumer_summary["load_kWh"]
+        prosumer_summary["self_consumption_kWh_baseline"] = prosumer_summary["self_consumption_kWh"]
+        prosumer_summary["surplus_kWh_baseline"] = prosumer_summary["surplus_kWh"]
+        prosumer_summary["matched_hh_kWh_baseline"] = id_map.map(baseline_zero).fillna(0.0)
+        prosumer_summary["matched_shop_kWh_baseline"] = id_map.map(baseline_zero).fillna(0.0)
+        prosumer_summary["exports_kWh_baseline"] = id_map.map(baseline_surplus_kWh).fillna(0.0)
+        prosumer_summary["imports_kWh_baseline"] = prosumer_summary["imports_kWh"]
+
+        prosumer_summary["community_revenue_EUR_baseline"] = id_map.map(baseline_total_revenue).fillna(0.0)
+        prosumer_summary["revenue_self_EUR_baseline"] = id_map.map(baseline_self_revenue).fillna(0.0)
+        prosumer_summary["revenue_matched_hh_EUR_baseline"] = id_map.map(baseline_zero).fillna(0.0)
+        prosumer_summary["revenue_matched_shop_EUR_baseline"] = id_map.map(baseline_zero).fillna(0.0)
+        prosumer_summary["revenue_export_EUR_baseline"] = id_map.map(baseline_surplus_revenue).fillna(0.0)
+        prosumer_summary["import_cost_EUR_baseline"] = id_map.map(baseline_import_cost).fillna(0.0)
+        prosumer_summary["revenue_baseline_EUR_baseline"] = id_map.map(baseline_total_revenue).fillna(0.0)
+
+        prosumer_summary[_price_col("self_consumption_kWh") + "_baseline"] = np.where(
+            prosumer_summary["self_consumption_kWh"] > 0,
+            id_map.map(baseline_self_revenue).fillna(0.0)
+            / prosumer_summary["self_consumption_kWh"],
+            0.0,
+        )
+        prosumer_summary[_price_col("surplus_kWh") + "_baseline"] = np.where(
+            prosumer_summary["surplus_kWh"] > 0,
+            id_map.map(baseline_surplus_revenue).fillna(0.0)
+            / prosumer_summary["surplus_kWh"],
+            0.0,
+        )
+        prosumer_summary[_price_col("matched_hh_kWh") + "_baseline"] = 0.0
+        prosumer_summary[_price_col("matched_shop_kWh") + "_baseline"] = 0.0
+        prosumer_summary[_price_col("exports_kWh") + "_baseline"] = np.where(
+            prosumer_summary["exports_kWh_baseline"] > 0,
+            id_map.map(baseline_surplus_revenue).fillna(0.0)
+            / prosumer_summary["exports_kWh_baseline"],
+            0.0,
+        )
+        prosumer_summary[_price_col("imports_kWh") + "_baseline"] = np.where(
+            prosumer_summary["imports_kWh"] > 0,
+            id_map.map(baseline_import_cost).fillna(0.0)
+            / prosumer_summary["imports_kWh"],
+            0.0,
+        )
+
+        # Remove generation/load average price metrics from the summary
+        prosumer_summary = prosumer_summary.drop(
+            columns=[
+                _price_col("generation_kWh"),
+                _price_col("load_kWh"),
+                _price_col("generation_kWh") + "_baseline",
+                _price_col("load_kWh") + "_baseline",
+            ],
+            errors="ignore",
+        )
+
         energy_cols = [
             "generation_kWh",
             "load_kWh",
@@ -464,7 +543,18 @@ def run_deterministic(
             "exports_kWh",
             "imports_kWh",
         ]
-        price_cols = [_price_col(col) for col in energy_cols]
+        price_cols = [
+            col
+            for col in (
+                _price_col("self_consumption_kWh"),
+                _price_col("surplus_kWh"),
+                _price_col("matched_hh_kWh"),
+                _price_col("matched_shop_kWh"),
+                _price_col("exports_kWh"),
+                _price_col("imports_kWh"),
+            )
+            if col in prosumer_summary.columns
+        ]
         monetary_cols = [
             "community_revenue_EUR",
             "revenue_self_EUR",
@@ -475,12 +565,26 @@ def run_deterministic(
             "revenue_baseline_EUR",
         ]
         ordered_cols: List[str] = ["prosumer_id"]
-        for energy, price in zip(energy_cols, price_cols):
-            ordered_cols.append(energy)
-            if price in prosumer_summary.columns:
-                ordered_cols.append(price)
-        ordered_cols.extend(monetary_cols)
-        prosumer_summary = prosumer_summary[ordered_cols]
+        for energy in energy_cols:
+            if energy in prosumer_summary.columns:
+                ordered_cols.append(energy)
+                baseline_col = f"{energy}_baseline"
+                if baseline_col in prosumer_summary.columns:
+                    ordered_cols.append(baseline_col)
+                price = _price_col(energy)
+                if price in price_cols:
+                    ordered_cols.append(price)
+                    price_baseline = f"{price}_baseline"
+                    if price_baseline in prosumer_summary.columns:
+                        ordered_cols.append(price_baseline)
+        for monetary in monetary_cols:
+            if monetary in prosumer_summary.columns:
+                ordered_cols.append(monetary)
+                monetary_baseline = f"{monetary}_baseline"
+                if monetary_baseline in prosumer_summary.columns:
+                    ordered_cols.append(monetary_baseline)
+        remaining = [col for col in prosumer_summary.columns if col not in ordered_cols]
+        prosumer_summary = prosumer_summary[ordered_cols + remaining]
 
     household_summary = household_hourly.groupby("household_id").agg({
         "load_kWh": "sum",
@@ -526,15 +630,51 @@ def run_deterministic(
 
         household_summary["savings_EUR"] = household_summary["baseline_EUR"] - household_summary["cost_EUR"]
 
+        baseline_cost_totals = (
+            pd.Series(hh_baseline.sum(axis=1), index=hh_ids) if nH else pd.Series(dtype=float)
+        )
+        hh_id_map = household_summary["household_id"]
+        household_summary["load_kWh_baseline"] = household_summary["load_kWh"]
+        household_summary["matched_kWh_baseline"] = 0.0
+        household_summary["import_kWh_baseline"] = household_summary["load_kWh"]
+        household_summary[_hh_price_col("load_kWh") + "_baseline"] = np.where(
+            household_summary["load_kWh"] > 0,
+            hh_id_map.map(baseline_cost_totals).fillna(0.0)
+            / household_summary["load_kWh"],
+            0.0,
+        )
+        household_summary[_hh_price_col("matched_kWh") + "_baseline"] = 0.0
+        household_summary[_hh_price_col("import_kWh") + "_baseline"] = np.where(
+            household_summary["import_kWh_baseline"] > 0,
+            hh_id_map.map(baseline_cost_totals).fillna(0.0)
+            / household_summary["import_kWh_baseline"],
+            0.0,
+        )
+        household_summary["cost_EUR_baseline"] = hh_id_map.map(baseline_cost_totals).fillna(0.0)
+        household_summary["baseline_EUR_baseline"] = hh_id_map.map(baseline_cost_totals).fillna(0.0)
+        household_summary["savings_EUR_baseline"] = 0.0
+
         hh_energy_cols = ["load_kWh", "matched_kWh", "import_kWh"]
         hh_price_cols = [_hh_price_col(col) for col in hh_energy_cols]
         hh_order = ["household_id"]
         for energy, price in zip(hh_energy_cols, hh_price_cols):
             hh_order.append(energy)
+            baseline_energy = f"{energy}_baseline"
+            if baseline_energy in household_summary.columns:
+                hh_order.append(baseline_energy)
             if price in household_summary.columns:
                 hh_order.append(price)
-        hh_order.extend(["cost_EUR", "baseline_EUR", "savings_EUR"])
-        household_summary = household_summary[hh_order]
+                price_baseline = f"{price}_baseline"
+                if price_baseline in household_summary.columns:
+                    hh_order.append(price_baseline)
+        for monetary in ["cost_EUR", "baseline_EUR", "savings_EUR"]:
+            if monetary in household_summary.columns:
+                hh_order.append(monetary)
+                monetary_baseline = f"{monetary}_baseline"
+                if monetary_baseline in household_summary.columns:
+                    hh_order.append(monetary_baseline)
+        remaining_hh = [col for col in household_summary.columns if col not in hh_order]
+        household_summary = household_summary[hh_order + remaining_hh]
 
     shop_summary = shop_hourly.groupby("shop_id").agg({
         "load_kWh": "sum",
@@ -580,15 +720,53 @@ def run_deterministic(
 
         shop_summary["savings_EUR"] = shop_summary["baseline_EUR"] - shop_summary["cost_EUR"]
 
+        shop_baseline_cost_totals = (
+            pd.Series(shop_baseline.sum(axis=1), index=shop_ids)
+            if nS
+            else pd.Series(dtype=float)
+        )
+        shop_id_map = shop_summary["shop_id"]
+        shop_summary["load_kWh_baseline"] = shop_summary["load_kWh"]
+        shop_summary["matched_kWh_baseline"] = 0.0
+        shop_summary["import_kWh_baseline"] = shop_summary["load_kWh"]
+        shop_summary[_shop_price_col("load_kWh") + "_baseline"] = np.where(
+            shop_summary["load_kWh"] > 0,
+            shop_id_map.map(shop_baseline_cost_totals).fillna(0.0)
+            / shop_summary["load_kWh"],
+            0.0,
+        )
+        shop_summary[_shop_price_col("matched_kWh") + "_baseline"] = 0.0
+        shop_summary[_shop_price_col("import_kWh") + "_baseline"] = np.where(
+            shop_summary["import_kWh_baseline"] > 0,
+            shop_id_map.map(shop_baseline_cost_totals).fillna(0.0)
+            / shop_summary["import_kWh_baseline"],
+            0.0,
+        )
+        shop_summary["cost_EUR_baseline"] = shop_id_map.map(shop_baseline_cost_totals).fillna(0.0)
+        shop_summary["baseline_EUR_baseline"] = shop_id_map.map(shop_baseline_cost_totals).fillna(0.0)
+        shop_summary["savings_EUR_baseline"] = 0.0
+
         shop_energy_cols = ["load_kWh", "matched_kWh", "import_kWh"]
         shop_price_cols = [_shop_price_col(col) for col in shop_energy_cols]
         shop_order = ["shop_id"]
         for energy, price in zip(shop_energy_cols, shop_price_cols):
             shop_order.append(energy)
+            baseline_energy = f"{energy}_baseline"
+            if baseline_energy in shop_summary.columns:
+                shop_order.append(baseline_energy)
             if price in shop_summary.columns:
                 shop_order.append(price)
-        shop_order.extend(["cost_EUR", "baseline_EUR", "savings_EUR"])
-        shop_summary = shop_summary[shop_order]
+                price_baseline = f"{price}_baseline"
+                if price_baseline in shop_summary.columns:
+                    shop_order.append(price_baseline)
+        for monetary in ["cost_EUR", "baseline_EUR", "savings_EUR"]:
+            if monetary in shop_summary.columns:
+                shop_order.append(monetary)
+                monetary_baseline = f"{monetary}_baseline"
+                if monetary_baseline in shop_summary.columns:
+                    shop_order.append(monetary_baseline)
+        remaining_shop = [col for col in shop_summary.columns if col not in shop_order]
+        shop_summary = shop_summary[shop_order + remaining_shop]
 
     community_hourly = pd.DataFrame({
         "timestamp": hours,

@@ -12,6 +12,54 @@ from .clustering import CLUSTERS
 from .kpi import compute_kpi_summary
 
 
+def _transpose_with_baseline(
+    df: pd.DataFrame,
+    *,
+    id_col: str,
+    drop_metrics: set[str] | None = None,
+) -> pd.DataFrame:
+    """Return a transposed summary with community/baseline columns per actor."""
+
+    if df is None or df.empty:
+        return df
+
+    drop_metrics = drop_metrics or set()
+    df = df.copy()
+    baseline_lookup = {
+        col[: -len("_baseline")]: col for col in df.columns if col.endswith("_baseline")
+    }
+    metrics = [
+        col
+        for col in df.columns
+        if col not in {id_col}
+        and not col.endswith("_baseline")
+        and col not in drop_metrics
+    ]
+
+    frames = []
+    for actor_id, row in df.set_index(id_col).iterrows():
+        community_values = [row.get(metric, np.nan) for metric in metrics]
+        baseline_values = [
+            row.get(baseline_lookup[metric], np.nan) if metric in baseline_lookup else np.nan
+            for metric in metrics
+        ]
+        actor_frame = pd.DataFrame(
+            {
+                f"{actor_id}_community": community_values,
+                f"{actor_id}_baseline": baseline_values,
+            },
+            index=metrics,
+        )
+        frames.append(actor_frame)
+
+    if not frames:
+        return df
+
+    combined = pd.concat(frames, axis=1)
+    combined = combined.reset_index().rename(columns={"index": id_col})
+    return combined
+
+
 def _format_timestamp_index(idx: pd.DatetimeIndex) -> pd.Series:
     """Return timestamps formatted with timezone offset for CSV/Excel templates."""
 
@@ -308,11 +356,24 @@ def export_all_in_one_xlsx(S: AppState) -> bytes:
             }
         )
 
+        prosumer_summary = _transpose_with_baseline(
+            S.result.prosumer_summary,
+            id_col="prosumer_id",
+        )
+        household_summary = _transpose_with_baseline(
+            S.result.household_summary,
+            id_col="household_id",
+        )
+        shop_summary = _transpose_with_baseline(
+            S.result.shop_summary,
+            id_col="shop_id",
+        )
+
         tables = [
             ("kpi_summary", summary),
-            ("prosumer_summary", S.result.prosumer_summary),
-            ("household_summary", S.result.household_summary),
-            ("shop_summary", S.result.shop_summary),
+            ("prosumer_summary", prosumer_summary),
+            ("household_summary", household_summary),
+            ("shop_summary", shop_summary),
             ("community_hourly", S.result.community_hourly),
             ("prices", S.result.prices),
             ("metadata", meta),
