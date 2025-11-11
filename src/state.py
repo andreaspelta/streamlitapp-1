@@ -63,6 +63,11 @@ class AppState:
 
     result: Optional[Any] = None
 
+    # Profile reshaping artifacts (kept separate from deterministic pipeline)
+    hh_reshaped_medians: Optional[pd.DataFrame] = None
+    hh_reshaping_summary: Optional[pd.DataFrame] = None
+    hh_reshaping_params: Optional[Dict[str, Any]] = None
+
 
 def get_state() -> AppState:
     if "APP_STATE" not in st.session_state:

@@ -44,6 +44,7 @@ from src.charts import (
     build_household_coverage_chart,
     build_shop_coverage_chart,
 )
+from src.profile_reshaping_page import render_profile_reshaping_page
 
 TZ = "Europe/Rome"
 
@@ -62,6 +63,7 @@ page = st.sidebar.radio(
         "5) Sankey Diagram",
         "6) Charts",
         "7) Exports",
+        "8) Profile Reshaping",
         "About",
     ],
 )
@@ -613,6 +615,10 @@ elif page == "7) Exports":
             file_name=f"hourly_prices_{S.year}.csv",
             mime="text/csv",
         )
+
+# ---- Page 8: Profile Reshaping
+elif page == "8) Profile Reshaping":
+    render_profile_reshaping_page()
 
 # ---- About page
 else:
