@@ -2,6 +2,7 @@ import hashlib
 from io import BytesIO
 
 import pandas as pd
+from pandas.api.types import is_datetime64tz_dtype
 import streamlit as st
 
 from src.state import get_state, reset_all_state
@@ -37,6 +38,12 @@ from src.ui_components import (
 )
 from src.kpi import render_kpi_dashboard
 from src.sankey import build_energy_sankey_chart, build_economic_sankey_chart
+from src.charts import (
+    build_profile_chart,
+    build_surplus_matching_chart,
+    build_household_coverage_chart,
+    build_shop_coverage_chart,
+)
 
 TZ = "Europe/Rome"
 
@@ -53,7 +60,8 @@ page = st.sidebar.radio(
         "3) Run Deterministic",
         "4) KPI Dashboard",
         "5) Sankey Diagram",
-        "6) Exports",
+        "6) Charts",
+        "7) Exports",
         "About",
     ],
 )
@@ -79,6 +87,26 @@ def _set_year(year: int):
             S.pun_h = expand_monthly_pun_to_hours(S.pun_m, S.hours)
         except Exception:
             S.pun_h = None
+
+
+def _normalize_timestamp_series(series: pd.Series) -> pd.Series:
+    if is_datetime64tz_dtype(series.dtype):
+        return series.dt.tz_convert(None)
+    return series
+
+
+def _available_dates(df: pd.DataFrame, column: str = "timestamp"):
+    if df is None or df.empty or column not in df.columns:
+        return []
+    normalized = _normalize_timestamp_series(df[column])
+    return sorted(normalized.dt.date.unique())
+
+
+def _format_date_option(value) -> str:
+    try:
+        return pd.Timestamp(value).strftime("%d %b %Y")
+    except Exception:
+        return str(value)
 
 
 # ---- Page 1: Templates & Inputs
@@ -413,8 +441,162 @@ elif page == "5) Sankey Diagram":
         st.caption(economic_note)
     st.plotly_chart(economic_fig, use_container_width=True)
 
-# ---- Page 6: Exports
-elif page == "6) Exports":
+# ---- Page 6: Charts
+elif page == "6) Charts":
+    st.header("Charts")
+    if S.result is None:
+        warn_box("Run the deterministic engine before exploring the charts.")
+    else:
+        result = S.result
+        community_df = result.community_hourly
+        prosumer_df = result.prosumer_hourly
+        household_df = result.household_hourly
+        shop_df = result.shop_hourly
+
+        st.subheader("Profile")
+        profile_dates = _available_dates(community_df)
+        if not profile_dates:
+            warn_box("No community data is available for the selected scenario.")
+        else:
+            profile_day = st.selectbox(
+                "Giorno",
+                profile_dates,
+                format_func=_format_date_option,
+                key="charts_profile_day",
+            )
+            try:
+                profile_fig = build_profile_chart(community_df, profile_day)
+                st.plotly_chart(profile_fig, use_container_width=True)
+            except ValueError as exc:
+                warn_box(str(exc))
+
+        st.divider()
+
+        st.subheader("Surplus matching")
+        prosumer_ids = sorted(prosumer_df["prosumer_id"].unique()) if not prosumer_df.empty else []
+        surplus_dates = _available_dates(prosumer_df)
+        if not prosumer_ids or not surplus_dates:
+            warn_box("No prosumer surplus data is available for charting.")
+        else:
+            col_surplus_day, col_surplus_prosumer = st.columns(2)
+            with col_surplus_day:
+                surplus_day = st.selectbox(
+                    "Giorno",
+                    surplus_dates,
+                    format_func=_format_date_option,
+                    key="charts_surplus_day",
+                )
+            with col_surplus_prosumer:
+                selected_prosumer = st.selectbox(
+                    "Prosumer",
+                    prosumer_ids,
+                    key="charts_surplus_prosumer",
+                )
+            surplus_view_label = st.radio(
+                "Visualizzazione",
+                ["Giornaliera", "Mensile"],
+                horizontal=True,
+                key="charts_surplus_view",
+            )
+            surplus_view = "daily" if surplus_view_label == "Giornaliera" else "monthly"
+            surplus_day_param = surplus_day if surplus_view == "daily" else None
+            try:
+                surplus_fig = build_surplus_matching_chart(
+                    prosumer_df,
+                    prosumer_id=selected_prosumer,
+                    view=surplus_view,
+                    day=surplus_day_param,
+                )
+                st.plotly_chart(surplus_fig, use_container_width=True)
+            except ValueError as exc:
+                warn_box(str(exc))
+
+        st.divider()
+
+        st.subheader("Households Demand Coverage")
+        household_ids = (
+            sorted(household_df["household_id"].unique()) if not household_df.empty else []
+        )
+        household_dates = _available_dates(household_df)
+        if not household_ids or not household_dates:
+            warn_box("No household demand data is available for charting.")
+        else:
+            col_hh_day, col_hh_consumer = st.columns(2)
+            with col_hh_day:
+                household_day = st.selectbox(
+                    "Giorno",
+                    household_dates,
+                    format_func=_format_date_option,
+                    key="charts_household_day",
+                )
+            with col_hh_consumer:
+                selected_household = st.selectbox(
+                    "Household",
+                    household_ids,
+                    key="charts_household_consumer",
+                )
+            household_view_label = st.radio(
+                "Visualizzazione",
+                ["Giornaliera", "Mensile"],
+                horizontal=True,
+                key="charts_household_view",
+            )
+            household_view = "daily" if household_view_label == "Giornaliera" else "monthly"
+            household_day_param = household_day if household_view == "daily" else None
+            try:
+                household_fig = build_household_coverage_chart(
+                    household_df,
+                    household_id=selected_household,
+                    view=household_view,
+                    day=household_day_param,
+                )
+                st.plotly_chart(household_fig, use_container_width=True)
+            except ValueError as exc:
+                warn_box(str(exc))
+
+        st.divider()
+
+        st.subheader("Shop Demand Coverage")
+        shop_ids = sorted(shop_df["shop_id"].unique()) if not shop_df.empty else []
+        shop_dates = _available_dates(shop_df)
+        if not shop_ids or not shop_dates:
+            warn_box("No shop demand data is available for charting.")
+        else:
+            col_shop_day, col_shop_consumer = st.columns(2)
+            with col_shop_day:
+                shop_day = st.selectbox(
+                    "Giorno",
+                    shop_dates,
+                    format_func=_format_date_option,
+                    key="charts_shop_day",
+                )
+            with col_shop_consumer:
+                selected_shop = st.selectbox(
+                    "Shop",
+                    shop_ids,
+                    key="charts_shop_consumer",
+                )
+            shop_view_label = st.radio(
+                "Visualizzazione",
+                ["Giornaliera", "Mensile"],
+                horizontal=True,
+                key="charts_shop_view",
+            )
+            shop_view = "daily" if shop_view_label == "Giornaliera" else "monthly"
+            shop_day_param = shop_day if shop_view == "daily" else None
+            try:
+                shop_fig = build_shop_coverage_chart(
+                    shop_df,
+                    shop_id=selected_shop,
+                    view=shop_view,
+                    day=shop_day_param,
+                )
+                st.plotly_chart(shop_fig, use_container_width=True)
+            except ValueError as exc:
+                warn_box(str(exc))
+
+# ---- Page 7: Exports
+elif page == "7) Exports":
     st.header("Exports")
     if S.result is None:
         warn_box("Run the deterministic engine before exporting.")
