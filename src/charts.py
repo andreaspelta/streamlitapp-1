@@ -28,7 +28,9 @@ def _normalize_timestamps(series: pd.Series) -> pd.Series:
     """Return timezone-naive timestamps for downstream processing."""
 
     if is_datetime64tz_dtype(series.dtype):
-        return series.dt.tz_convert(None)
+        # Preserve the original wall-clock time when removing timezone information
+        # so that chart filtering/labeling stays aligned with exported tables.
+        return series.dt.tz_localize(None)
     return series
 
 
