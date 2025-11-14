@@ -59,6 +59,10 @@ class AppState:
     hh_weights: Dict[str, float] = field(default_factory=dict)
     shop_weights: Dict[str, float] = field(default_factory=dict)
     shop_province: Dict[str, str] = field(default_factory=dict)
+    hh_price_mode: Dict[str, str] = field(default_factory=dict)
+    hh_price_value: Dict[str, float] = field(default_factory=dict)
+    shop_price_mode: Dict[str, str] = field(default_factory=dict)
+    shop_price_value: Dict[str, float] = field(default_factory=dict)
     mapping: Dict[str, List[str]] = field(default_factory=dict)
 
     result: Optional[Any] = None

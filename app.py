@@ -25,7 +25,7 @@ from src.exporters import (
     export_hourly_facts,
 )
 from src.simulation import build_hourly_profile, run_deterministic
-from src.prices import build_price_layers, NEGATIVE_RULE
+from src.prices import NEGATIVE_RULE
 from src.ui_components import (
     spinner_block,
     info_box,
@@ -320,12 +320,28 @@ elif page == "2) Scenario Builder":
     S.prosumer_province = {pid: data["province"] for pid, data in pros_data.items()}
 
     st.subheader("Household weights (per template unit)")
-    S.hh_weights = build_household_table(S.hh_ids, S.hh_weights)
+    hh_data = build_household_table(
+        S.hh_ids,
+        S.hh_weights,
+        S.hh_price_mode,
+        S.hh_price_value,
+    )
+    S.hh_weights = {hid: float(data.get("w_HH", 1.0)) for hid, data in hh_data.items()}
+    S.hh_price_mode = {hid: str(data.get("price_mode", "PUN-INDEX")) for hid, data in hh_data.items()}
+    S.hh_price_value = {hid: float(data.get("fixed_price", 0.0)) for hid, data in hh_data.items()}
 
     st.subheader("Shop weights and provinces")
-    shop_data = build_shop_table(S.shop_ids, S.shop_weights, S.shop_province)
-    S.shop_weights = {sid: data["w_SHOP"] for sid, data in shop_data.items()}
-    S.shop_province = {sid: data["province"] for sid, data in shop_data.items()}
+    shop_data = build_shop_table(
+        S.shop_ids,
+        S.shop_weights,
+        S.shop_province,
+        S.shop_price_mode,
+        S.shop_price_value,
+    )
+    S.shop_weights = {sid: float(data.get("w_SHOP", 1.0)) for sid, data in shop_data.items()}
+    S.shop_province = {sid: str(data.get("province", "Province-1")) for sid, data in shop_data.items()}
+    S.shop_price_mode = {sid: str(data.get("price_mode", "PUN-INDEX")) for sid, data in shop_data.items()}
+    S.shop_price_value = {sid: float(data.get("fixed_price", 0.0)) for sid, data in shop_data.items()}
 
     st.subheader("Prosumer → Household mapping")
     S.mapping = build_mapping_editor(S.prosumer_ids, S.hh_ids, S.mapping)
@@ -369,23 +385,17 @@ elif page == "3) Run Deterministic":
             households_df = pd.DataFrame({
                 "household_id": S.hh_ids,
                 "w_HH": [S.hh_weights.get(hid, 1.0) for hid in S.hh_ids],
+                "base_price_mode": [S.hh_price_mode.get(hid, "PUN-INDEX") for hid in S.hh_ids],
+                "fixed_price_EUR_per_kWh": [S.hh_price_value.get(hid, 0.0) for hid in S.hh_ids],
             })
             shops_df = pd.DataFrame({
                 "shop_id": S.shop_ids,
                 "w_SHOP": [S.shop_weights.get(sid, 1.0) for sid in S.shop_ids],
                 "province": [S.shop_province.get(sid, "Province-1") for sid in S.shop_ids],
+                "base_price_mode": [S.shop_price_mode.get(sid, "PUN-INDEX") for sid in S.shop_ids],
+                "fixed_price_EUR_per_kWh": [S.shop_price_value.get(sid, 0.0) for sid in S.shop_ids],
             })
 
-            price_layer = build_price_layers(
-                s_hh=S.s_HH,
-                s_sh=S.s_SH,
-                spread_split_hh=S.spread_split_HH,
-                platform_gap_hh=S.platform_gap_HH,
-                spread_split_sh=S.spread_split_SH,
-                platform_gap_sh=S.platform_gap_SH,
-                delta_unm=S.delta_unm,
-                hh_gift=S.hh_gift,
-            )
             fees = {
                 "f_pros": S.f_pros,
                 "f_hh": S.f_hh,
@@ -406,7 +416,13 @@ elif page == "3) Run Deterministic":
                         mapping=S.mapping,
                         zonal=S.zonal,
                         pun_hourly=S.pun_h,
-                        price_layer=price_layer,
+                        s_hh=S.s_HH,
+                        s_sh=S.s_SH,
+                        spread_split_hh=S.spread_split_HH,
+                        platform_gap_hh=S.platform_gap_HH,
+                        spread_split_sh=S.spread_split_SH,
+                        platform_gap_sh=S.platform_gap_SH,
+                        delta_unm=S.delta_unm,
                         efficiency=S.efficiency,
                         hh_gift=S.hh_gift,
                         fees=fees,
