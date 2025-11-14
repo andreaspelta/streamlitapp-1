@@ -153,6 +153,8 @@ def run_deterministic(
     pros_matched_hh = np.zeros_like(pros_gen)
     pros_matched_shop = np.zeros_like(pros_gen)
     pros_exports = np.zeros_like(pros_gen)
+    hh_match_matrix = np.zeros((nP, nH, n_hours))
+    shop_match_matrix = np.zeros((nP, nS, n_hours))
 
     hh_index = {hid: idx for idx, hid in enumerate(hh_ids)}
     mapping_idx = [
@@ -201,6 +203,20 @@ def run_deterministic(
     shop_fixed_values = shop_fixed_series.astype(float).to_numpy() if nS else np.zeros(0)
     shop_is_fixed = shop_modes.eq("FIXED").to_numpy() if nS else np.zeros(0, dtype=bool)
 
+    pros_mode_series = (
+        prosumers.get("base_price_mode", pd.Series("PUN-INDEX", index=prosumers.index))
+        if nP
+        else pd.Series(dtype=str)
+    )
+    pros_modes = pros_mode_series.astype(str).str.upper()
+    pros_fixed_series = (
+        prosumers.get("fixed_price_EUR_per_kWh", pd.Series(0.0, index=prosumers.index))
+        if nP
+        else pd.Series(dtype=float)
+    )
+    pros_fixed_values = pros_fixed_series.astype(float).to_numpy() if nP else np.zeros(0)
+    pros_is_fixed = pros_modes.eq("FIXED").to_numpy() if nP else np.zeros(0, dtype=bool)
+
     hh_ret = np.zeros((nH, n_hours))
     hh_Ppros = np.zeros((nH, n_hours))
     hh_Pcons = np.zeros((nH, n_hours))
@@ -209,6 +225,7 @@ def run_deterministic(
     shop_Ppros = np.zeros((nS, n_hours))
     shop_Pcons = np.zeros((nS, n_hours))
     shop_gap = np.zeros((nS, n_hours))
+    pros_ret = np.zeros((nP, n_hours))
     P_unm = np.zeros(n_hours)
 
     s_hh_val = float(s_hh)
@@ -229,6 +246,9 @@ def run_deterministic(
         if nS:
             base_ret_shop = np.where(shop_is_fixed, shop_fixed_values, pun + s_sh_val)
             shop_ret[:, h] = base_ret_shop
+        if nP:
+            base_ret_pros = np.where(pros_is_fixed, pros_fixed_values, pun + s_hh_val)
+            pros_ret[:, h] = base_ret_pros
 
         if z < 0:
             if nH:
@@ -279,6 +299,7 @@ def run_deterministic(
                         hh_need[idxs] -= alloc
                         hh_matched[idxs, h] += alloc
                         pros_matched_hh[p_idx, h] += float(alloc.sum())
+                        hh_match_matrix[p_idx, idxs, h] += alloc
                     residual[p_idx] = resid
 
         hh_import[:, h] = hh_need
@@ -300,13 +321,17 @@ def run_deterministic(
                 if taken > 1e-12:
                     shop_need[shop_idxs] -= alloc
                     shop_matched[shop_idxs, h] += alloc
-                    total_supply = residual[pros_idxs].sum()
-                    if total_supply > 0:
-                        shares = residual[pros_idxs] / total_supply
-                        for idx, share in zip(pros_idxs, shares):
-                            used = share * taken
-                            pros_matched_shop[idx, h] += used
-                            residual[idx] = max(residual[idx] - used, 0.0)
+                    residual_before = residual[pros_idxs].copy()
+                    total_supply = residual_before.sum()
+                    if total_supply > 1e-12:
+                        shares = residual_before / total_supply
+                        pros_alloc = np.outer(shares, alloc)
+                        for local_idx, p_idx in enumerate(pros_idxs):
+                            used = pros_alloc[local_idx].sum()
+                            if used > 1e-12:
+                                pros_matched_shop[p_idx, h] += used
+                                shop_match_matrix[p_idx, shop_idxs, h] += pros_alloc[local_idx]
+                            residual[p_idx] = max(residual[p_idx] - used, 0.0)
                 # resid_pool implicitly carried in residual remaining
         shop_import[:, h] = shop_need
         pros_exports[:, h] = np.maximum(residual, 0.0)
@@ -380,22 +405,18 @@ def run_deterministic(
         gap_SH_avg = np.zeros(n_hours)
 
     if nP:
-        pros_rev_self = pros_self * grid_price_hh[None, :]
-        pros_rev_import_cost = pros_import * grid_price_hh[None, :]
-        pros_rev_matched_hh = np.zeros((nP, n_hours))
-        if nH:
-            for h in range(n_hours):
-                supply = pros_matched_hh[:, h].sum()
-                if supply > 1e-12 and total_matched_hh[h] > 1e-12:
-                    shares = pros_matched_hh[:, h] / supply
-                    pros_rev_matched_hh[:, h] = shares * total_hh_revenue[h]
-        pros_rev_matched_shop = np.zeros((nP, n_hours))
-        if nS:
-            for h in range(n_hours):
-                supply_shop = pros_matched_shop[:, h].sum()
-                if supply_shop > 1e-12 and total_matched_shop[h] > 1e-12:
-                    shares = pros_matched_shop[:, h] / supply_shop
-                    pros_rev_matched_shop[:, h] = shares * total_shop_revenue[h]
+        pros_rev_self = pros_self * pros_ret
+        pros_rev_import_cost = pros_import * pros_ret
+        pros_rev_matched_hh = (
+            (hh_match_matrix * hh_Ppros[None, :, :]).sum(axis=1)
+            if nH
+            else np.zeros((nP, n_hours))
+        )
+        pros_rev_matched_shop = (
+            (shop_match_matrix * shop_Ppros[None, :, :]).sum(axis=1)
+            if nS
+            else np.zeros((nP, n_hours))
+        )
         pros_rev_matched = pros_rev_matched_hh + pros_rev_matched_shop
         pros_rev_export = pros_exports * P_unm[None, :]
         pros_rev = pros_rev_self + pros_rev_matched + pros_rev_export - pros_rev_import_cost
@@ -483,13 +504,14 @@ def run_deterministic(
         "import_cost_EUR": pros_rev_import_cost.reshape(-1),
         "community_revenue_EUR": pros_rev.reshape(-1),
         "revenue_baseline_EUR": pros_rev_no_share.reshape(-1),
+        "retail_price_EUR_per_kWh": pros_ret.reshape(-1),
     }) if nP else pd.DataFrame(columns=[
         "prosumer_id", "timestamp", "generation_kWh", "load_kWh",
         "self_consumption_kWh", "surplus_kWh", "imports_kWh", "matched_hh_kWh",
         "matched_shop_kWh", "exports_kWh", "revenue_self_EUR",
         "revenue_matched_hh_EUR", "revenue_matched_shop_EUR",
         "revenue_export_EUR", "import_cost_EUR", "community_revenue_EUR",
-        "revenue_baseline_EUR"
+        "revenue_baseline_EUR", "retail_price_EUR_per_kWh"
     ])
 
     household_hourly = pd.DataFrame({
@@ -500,9 +522,12 @@ def run_deterministic(
         "import_kWh": hh_import.reshape(-1),
         "cost_EUR": hh_cost.reshape(-1),
         "baseline_EUR": hh_baseline.reshape(-1),
+        "matched_cost_EUR": hh_matched_cost.reshape(-1),
+        "import_cost_EUR": hh_import_cost.reshape(-1),
     }) if nH else pd.DataFrame(columns=[
         "household_id", "timestamp", "load_kWh", "matched_kWh",
-        "import_kWh", "cost_EUR", "baseline_EUR"
+        "import_kWh", "cost_EUR", "baseline_EUR",
+        "matched_cost_EUR", "import_cost_EUR"
     ])
 
     shop_hourly = pd.DataFrame({
@@ -513,9 +538,12 @@ def run_deterministic(
         "import_kWh": shop_import.reshape(-1),
         "cost_EUR": shop_cost.reshape(-1),
         "baseline_EUR": shop_baseline.reshape(-1),
+        "matched_cost_EUR": shop_matched_cost.reshape(-1),
+        "import_cost_EUR": shop_import_cost.reshape(-1),
     }) if nS else pd.DataFrame(columns=[
         "shop_id", "timestamp", "load_kWh", "matched_kWh",
-        "import_kWh", "cost_EUR", "baseline_EUR"
+        "import_kWh", "cost_EUR", "baseline_EUR",
+        "matched_cost_EUR", "import_cost_EUR"
     ])
 
     prosumer_summary = (

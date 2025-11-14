@@ -314,10 +314,19 @@ elif page == "2) Scenario Builder":
     S.shop_ids = [f"K{i:03d}" for i in range(1, S.N_SHOP + 1)]
 
     st.subheader("Prosumer parameters")
-    pros_data = build_prosumer_table(S.prosumer_ids, S.kwp_map, S.w_self_map, S.prosumer_province)
+    pros_data = build_prosumer_table(
+        S.prosumer_ids,
+        S.kwp_map,
+        S.w_self_map,
+        S.prosumer_province,
+        S.pros_price_mode,
+        S.pros_price_value,
+    )
     S.kwp_map = {pid: data["kWp"] for pid, data in pros_data.items()}
     S.w_self_map = {pid: data["w_self"] for pid, data in pros_data.items()}
     S.prosumer_province = {pid: data["province"] for pid, data in pros_data.items()}
+    S.pros_price_mode = {pid: str(data.get("price_mode", "PUN-INDEX")) for pid, data in pros_data.items()}
+    S.pros_price_value = {pid: float(data.get("fixed_price", 0.0)) for pid, data in pros_data.items()}
 
     st.subheader("Household weights (per template unit)")
     hh_data = build_household_table(
@@ -381,6 +390,8 @@ elif page == "3) Run Deterministic":
                 "kWp": [S.kwp_map.get(pid, 0.0) for pid in S.prosumer_ids],
                 "w_self": [S.w_self_map.get(pid, 1.0) for pid in S.prosumer_ids],
                 "province": [S.prosumer_province.get(pid, "Province-1") for pid in S.prosumer_ids],
+                "base_price_mode": [S.pros_price_mode.get(pid, "PUN-INDEX") for pid in S.prosumer_ids],
+                "fixed_price_EUR_per_kWh": [S.pros_price_value.get(pid, 0.0) for pid in S.prosumer_ids],
             })
             households_df = pd.DataFrame({
                 "household_id": S.hh_ids,

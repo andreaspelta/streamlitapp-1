@@ -59,6 +59,8 @@ class AppState:
     hh_weights: Dict[str, float] = field(default_factory=dict)
     shop_weights: Dict[str, float] = field(default_factory=dict)
     shop_province: Dict[str, str] = field(default_factory=dict)
+    pros_price_mode: Dict[str, str] = field(default_factory=dict)
+    pros_price_value: Dict[str, float] = field(default_factory=dict)
     hh_price_mode: Dict[str, str] = field(default_factory=dict)
     hh_price_value: Dict[str, float] = field(default_factory=dict)
     shop_price_mode: Dict[str, str] = field(default_factory=dict)
