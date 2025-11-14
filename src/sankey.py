@@ -299,67 +299,53 @@ def _economic_spec_from_result(state: AppState, result: DeterministicResult) -> 
             nodes.append(target)
         links.append(_SankeyLink(source, target, float(value), label))
 
-    prices = result.prices.copy()
-    prices = prices.rename(
-        columns={
-            "retail_HH (EUR_per_kWh)": "retail_HH",
-            "retail_SH (EUR_per_kWh)": "retail_SH",
-            "Pcons_HH (EUR_per_kWh)": "Pcons_HH",
-            "Pcons_SH (EUR_per_kWh)": "Pcons_SH",
-            "Ppros_HH (EUR_per_kWh)": "Ppros_HH",
-            "Ppros_SH (EUR_per_kWh)": "Ppros_SH",
-            "P_unm (EUR_per_kWh)": "P_unm",
-        }
-    )
-
     hh_hourly = result.household_hourly
     if not hh_hourly.empty:
-        hh_merge = hh_hourly.merge(
-            prices[["timestamp", "retail_HH", "Pcons_HH"]], on="timestamp", how="left"
+        hh_costs = (
+            hh_hourly.groupby("household_id")[
+                ["matched_cost_EUR", "import_cost_EUR"]
+            ]
+            .sum()
+            .reset_index()
         )
-        hh_merge[["retail_HH", "Pcons_HH"]] = hh_merge[["retail_HH", "Pcons_HH"]].fillna(0.0)
-        hh_merge["matched_cost"] = hh_merge["matched_kWh"] * hh_merge["Pcons_HH"]
-        hh_merge["import_cost"] = hh_merge["import_kWh"] * hh_merge["retail_HH"]
-        hh_costs = hh_merge.groupby("household_id")[["matched_cost", "import_cost"]].sum().reset_index()
     else:
-        hh_costs = pd.DataFrame(columns=["household_id", "matched_cost", "import_cost"])
+        hh_costs = pd.DataFrame(columns=["household_id", "matched_cost_EUR", "import_cost_EUR"])
 
     shop_hourly = result.shop_hourly
     if not shop_hourly.empty:
-        shop_merge = shop_hourly.merge(
-            prices[["timestamp", "retail_SH", "Pcons_SH"]], on="timestamp", how="left"
+        shop_costs = (
+            shop_hourly.groupby("shop_id")[
+                ["matched_cost_EUR", "import_cost_EUR"]
+            ]
+            .sum()
+            .reset_index()
         )
-        shop_merge[["retail_SH", "Pcons_SH"]] = shop_merge[["retail_SH", "Pcons_SH"]].fillna(0.0)
-        shop_merge["matched_cost"] = shop_merge["matched_kWh"] * shop_merge["Pcons_SH"]
-        shop_merge["import_cost"] = shop_merge["import_kWh"] * shop_merge["retail_SH"]
-        shop_costs = shop_merge.groupby("shop_id")[["matched_cost", "import_cost"]].sum().reset_index()
     else:
-        shop_costs = pd.DataFrame(columns=["shop_id", "matched_cost", "import_cost"])
+        shop_costs = pd.DataFrame(columns=["shop_id", "matched_cost_EUR", "import_cost_EUR"])
 
     pros_hourly = result.prosumer_hourly
     if not pros_hourly.empty:
-        pros_merge = pros_hourly.merge(
-            prices[["timestamp", "retail_HH", "Ppros_HH", "Ppros_SH", "P_unm"]],
-            on="timestamp",
-            how="left",
-        )
-        pros_merge[["retail_HH", "Ppros_HH", "Ppros_SH", "P_unm"]] = pros_merge[
-            ["retail_HH", "Ppros_HH", "Ppros_SH", "P_unm"]
-        ].fillna(0.0)
-        pros_merge["import_cost"] = pros_merge["imports_kWh"] * pros_merge["retail_HH"]
-        pros_merge["matched_hh_rev"] = pros_merge["matched_hh_kWh"] * pros_merge["Ppros_HH"]
-        pros_merge["matched_shop_rev"] = pros_merge["matched_shop_kWh"] * pros_merge["Ppros_SH"]
-        pros_merge["export_rev"] = pros_merge["exports_kWh"] * pros_merge["P_unm"]
         pros_cash = (
-            pros_merge.groupby("prosumer_id")[
-                ["import_cost", "matched_hh_rev", "matched_shop_rev", "export_rev"]
+            pros_hourly.groupby("prosumer_id")[
+                [
+                    "import_cost_EUR",
+                    "revenue_matched_hh_EUR",
+                    "revenue_matched_shop_EUR",
+                    "revenue_export_EUR",
+                ]
             ]
             .sum()
             .reset_index()
         )
     else:
         pros_cash = pd.DataFrame(
-            columns=["prosumer_id", "import_cost", "matched_hh_rev", "matched_shop_rev", "export_rev"]
+            columns=[
+                "prosumer_id",
+                "import_cost_EUR",
+                "revenue_matched_hh_EUR",
+                "revenue_matched_shop_EUR",
+                "revenue_export_EUR",
+            ]
         )
 
     hh_fee = 12.0 * float(state.f_hh)
@@ -368,7 +354,7 @@ def _economic_spec_from_result(state: AppState, result: DeterministicResult) -> 
 
     for _, row in hh_costs.iterrows():
         hh_label = f"Household {row['household_id']}"
-        energy_payment = float(row["matched_cost"] + row["import_cost"])
+        energy_payment = float(row["matched_cost_EUR"] + row["import_cost_EUR"])
         total_payment = energy_payment + hh_fee
         label = f"Energy: {energy_payment:,.2f} €"
         if hh_fee > _EPS:
@@ -377,7 +363,7 @@ def _economic_spec_from_result(state: AppState, result: DeterministicResult) -> 
 
     for _, row in shop_costs.iterrows():
         shop_label = f"Shop {row['shop_id']}"
-        energy_payment = float(row["matched_cost"] + row["import_cost"])
+        energy_payment = float(row["matched_cost_EUR"] + row["import_cost_EUR"])
         total_payment = energy_payment + shop_fee
         label = f"Energy: {energy_payment:,.2f} €"
         if shop_fee > _EPS:
@@ -386,8 +372,12 @@ def _economic_spec_from_result(state: AppState, result: DeterministicResult) -> 
 
     for _, row in pros_cash.iterrows():
         pros_label = f"Prosumer {row['prosumer_id']}"
-        import_cost = float(row["import_cost"])
-        receipts = float(row["matched_hh_rev"] + row["matched_shop_rev"] + row["export_rev"])
+        import_cost = float(row["import_cost_EUR"])
+        receipts = float(
+            row["revenue_matched_hh_EUR"]
+            + row["revenue_matched_shop_EUR"]
+            + row["revenue_export_EUR"]
+        )
         payment_label = ""
         payment_total = import_cost
         if import_cost > _EPS:
@@ -400,12 +390,12 @@ def _economic_spec_from_result(state: AppState, result: DeterministicResult) -> 
         if payment_total > _EPS:
             add_link(pros_label, plenitude, payment_total, payment_label)
         receipt_label = []
-        if row["matched_hh_rev"] > _EPS:
-            receipt_label.append(f"HH matched: {row['matched_hh_rev']:,.2f} €")
-        if row["matched_shop_rev"] > _EPS:
-            receipt_label.append(f"Shop matched: {row['matched_shop_rev']:,.2f} €")
-        if row["export_rev"] > _EPS:
-            receipt_label.append(f"Exports: {row['export_rev']:,.2f} €")
+        if row["revenue_matched_hh_EUR"] > _EPS:
+            receipt_label.append(f"HH matched: {row['revenue_matched_hh_EUR']:,.2f} €")
+        if row["revenue_matched_shop_EUR"] > _EPS:
+            receipt_label.append(f"Shop matched: {row['revenue_matched_shop_EUR']:,.2f} €")
+        if row["revenue_export_EUR"] > _EPS:
+            receipt_label.append(f"Exports: {row['revenue_export_EUR']:,.2f} €")
         if receipts > _EPS:
             add_link(plenitude, pros_label, receipts, " | ".join(receipt_label))
 

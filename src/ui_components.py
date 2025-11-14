@@ -33,13 +33,18 @@ def build_prosumer_table(
     kwp_map: Dict[str, float],
     w_self_map: Dict[str, float],
     province_map: Dict[str, str],
+    price_mode_map: Dict[str, str],
+    price_value_map: Dict[str, float],
 ) -> Dict[str, Dict[str, any]]:
+    mode_options = ["PUN-INDEX", "Fixed"]
     df = pd.DataFrame(
         {
             "prosumer_id": prosumer_ids,
             "kWp": [float(kwp_map.get(pid, 0.0)) for pid in prosumer_ids],
             "w_self": [float(w_self_map.get(pid, 1.0)) for pid in prosumer_ids],
             "province": [province_map.get(pid, "Province-1") for pid in prosumer_ids],
+            "price_mode": [price_mode_map.get(pid, "PUN-INDEX") for pid in prosumer_ids],
+            "fixed_price": [float(price_value_map.get(pid, 0.25)) for pid in prosumer_ids],
         }
     )
     edited = st.data_editor(
@@ -50,15 +55,31 @@ def build_prosumer_table(
         column_config={
             "kWp": st.column_config.NumberColumn("kWp", min_value=0.0, step=0.1),
             "w_self": st.column_config.NumberColumn("w_self", min_value=0.0, step=0.1),
+            "price_mode": st.column_config.SelectboxColumn(
+                "Base price mode",
+                options=mode_options,
+            ),
+            "fixed_price": st.column_config.NumberColumn(
+                "Fixed price (€/kWh)",
+                min_value=0.0,
+                step=0.005,
+                format="%.4f",
+            ),
         },
         key="prosumer_table",
     )
     result = {}
     for _, row in edited.iterrows():
+        mode_raw = str(row.get("price_mode", "PUN-INDEX")).strip().upper()
+        mode = "FIXED" if mode_raw == "FIXED" else "PUN-INDEX"
+        raw_fixed = row.get("fixed_price", 0.25)
+        fixed_val = float(raw_fixed) if pd.notna(raw_fixed) else 0.0
         result[row["prosumer_id"]] = {
             "kWp": float(row["kWp"]),
             "w_self": float(row["w_self"]),
             "province": str(row["province"]).strip() or "Province-1",
+            "price_mode": mode,
+            "fixed_price": fixed_val,
         }
     return result
 
