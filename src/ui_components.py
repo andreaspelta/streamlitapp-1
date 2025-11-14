@@ -1,7 +1,7 @@
 import pandas as pd
 import streamlit as st
 
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 class spinner_block:
@@ -63,11 +63,19 @@ def build_prosumer_table(
     return result
 
 
-def build_household_table(hh_ids: List[str], hh_weights: Dict[str, float]) -> Dict[str, float]:
+def build_household_table(
+    hh_ids: List[str],
+    hh_weights: Dict[str, float],
+    hh_price_mode: Dict[str, str],
+    hh_price_value: Dict[str, float],
+) -> Dict[str, Dict[str, Any]]:
+    mode_options = ["PUN-INDEX", "Fixed"]
     df = pd.DataFrame(
         {
             "household_id": hh_ids,
             "w_HH": [float(hh_weights.get(hid, 1.0)) for hid in hh_ids],
+            "price_mode": [hh_price_mode.get(hid, "PUN-INDEX") for hid in hh_ids],
+            "fixed_price": [float(hh_price_value.get(hid, 0.25)) for hid in hh_ids],
         }
     )
     edited = st.data_editor(
@@ -77,22 +85,50 @@ def build_household_table(hh_ids: List[str], hh_weights: Dict[str, float]) -> Di
         hide_index=True,
         column_config={
             "w_HH": st.column_config.NumberColumn("w_HH", min_value=0.0, step=0.1),
+            "price_mode": st.column_config.SelectboxColumn(
+                "Base price mode",
+                options=mode_options,
+            ),
+            "fixed_price": st.column_config.NumberColumn(
+                "Fixed price (€/kWh)",
+                min_value=0.0,
+                step=0.005,
+                format="%.4f",
+            ),
         },
         key="household_table",
     )
-    return {row["household_id"]: float(row["w_HH"]) for _, row in edited.iterrows()}
+    result: Dict[str, Dict[str, Any]] = {}
+    for _, row in edited.iterrows():
+        mode_raw = str(row.get("price_mode", "PUN-INDEX")).strip().upper()
+        mode = "FIXED" if mode_raw == "FIXED" else "PUN-INDEX"
+        raw_fixed = row.get("fixed_price", 0.25)
+        fixed_val = float(raw_fixed) if pd.notna(raw_fixed) else 0.0
+        raw_weight = row.get("w_HH", 1.0)
+        weight = float(raw_weight) if pd.notna(raw_weight) else 1.0
+        result[str(row["household_id"])] = {
+            "w_HH": weight,
+            "price_mode": mode,
+            "fixed_price": fixed_val,
+        }
+    return result
 
 
 def build_shop_table(
     shop_ids: List[str],
     shop_weights: Dict[str, float],
     shop_province: Dict[str, str],
-) -> Dict[str, Dict[str, any]]:
+    shop_price_mode: Dict[str, str],
+    shop_price_value: Dict[str, float],
+) -> Dict[str, Dict[str, Any]]:
+    mode_options = ["PUN-INDEX", "Fixed"]
     df = pd.DataFrame(
         {
             "shop_id": shop_ids,
             "w_SHOP": [float(shop_weights.get(sid, 1.0)) for sid in shop_ids],
             "province": [shop_province.get(sid, "Province-1") for sid in shop_ids],
+            "price_mode": [shop_price_mode.get(sid, "PUN-INDEX") for sid in shop_ids],
+            "fixed_price": [float(shop_price_value.get(sid, 0.25)) for sid in shop_ids],
         }
     )
     edited = st.data_editor(
@@ -102,14 +138,34 @@ def build_shop_table(
         hide_index=True,
         column_config={
             "w_SHOP": st.column_config.NumberColumn("w_SHOP", min_value=0.0, step=0.1),
+            "province": st.column_config.TextColumn("Province"),
+            "price_mode": st.column_config.SelectboxColumn(
+                "Base price mode",
+                options=mode_options,
+            ),
+            "fixed_price": st.column_config.NumberColumn(
+                "Fixed price (€/kWh)",
+                min_value=0.0,
+                step=0.005,
+                format="%.4f",
+            ),
         },
         key="shop_table",
     )
-    result = {}
+    result: Dict[str, Dict[str, Any]] = {}
     for _, row in edited.iterrows():
-        result[row["shop_id"]] = {
-            "w_SHOP": float(row["w_SHOP"]),
-            "province": str(row["province"]).strip() or "Province-1",
+        mode_raw = str(row.get("price_mode", "PUN-INDEX")).strip().upper()
+        mode = "FIXED" if mode_raw == "FIXED" else "PUN-INDEX"
+        raw_fixed = row.get("fixed_price", 0.25)
+        fixed_val = float(raw_fixed) if pd.notna(raw_fixed) else 0.0
+        raw_weight = row.get("w_SHOP", 1.0)
+        weight = float(raw_weight) if pd.notna(raw_weight) else 1.0
+        province_val = str(row.get("province", "Province-1")).strip() or "Province-1"
+        result[str(row["shop_id"])] = {
+            "w_SHOP": weight,
+            "province": province_val,
+            "price_mode": mode,
+            "fixed_price": fixed_val,
         }
     return result
 

@@ -89,7 +89,13 @@ def run_deterministic(
     mapping: Dict[str, List[str]],
     zonal: pd.DataFrame,
     pun_hourly: pd.DataFrame,
-    price_layer,
+    s_hh: float,
+    s_sh: float,
+    spread_split_hh: float,
+    platform_gap_hh: float,
+    spread_split_sh: float,
+    platform_gap_sh: float,
+    delta_unm: float,
     efficiency: float,
     hh_gift: bool,
     fees: Dict[str, float],
@@ -164,19 +170,99 @@ def run_deterministic(
         province_to_shops.setdefault(prov, []).append(idx)
     province_to_shops = {k: np.array(v, dtype=int) for k, v in province_to_shops.items()}
 
-    price_records = []
-    for zonal_val, pun_val in zip(zonal_series.to_numpy(), pun_series.to_numpy()):
-        price_records.append(price_layer(zonal_val, pun_val))
+    zonal_vals = zonal_series.to_numpy()
+    pun_vals = pun_series.to_numpy()
 
-    ret_HH = np.array([rec["ret_HH"] for rec in price_records])
-    ret_SH = np.array([rec["ret_SH"] for rec in price_records])
-    Ppros_HH = np.array([rec["Ppros_HH"] for rec in price_records])
-    Pcons_HH = np.array([rec["Pcons_HH"] for rec in price_records])
-    gap_HH = np.array([rec["gap_HH"] for rec in price_records])
-    Ppros_SH = np.array([rec["Ppros_SH"] for rec in price_records])
-    Pcons_SH = np.array([rec["Pcons_SH"] for rec in price_records])
-    gap_SH = np.array([rec["gap_SH"] for rec in price_records])
-    P_unm = np.array([rec["P_unm"] for rec in price_records])
+    hh_mode_series = (
+        households.get("base_price_mode", pd.Series("PUN-INDEX", index=households.index))
+        if nH
+        else pd.Series(dtype=str)
+    )
+    hh_modes = hh_mode_series.astype(str).str.upper()
+    hh_fixed_series = (
+        households.get("fixed_price_EUR_per_kWh", pd.Series(0.0, index=households.index))
+        if nH
+        else pd.Series(dtype=float)
+    )
+    hh_fixed_values = hh_fixed_series.astype(float).to_numpy() if nH else np.zeros(0)
+    hh_is_fixed = hh_modes.eq("FIXED").to_numpy() if nH else np.zeros(0, dtype=bool)
+
+    shop_mode_series = (
+        shops.get("base_price_mode", pd.Series("PUN-INDEX", index=shops.index))
+        if nS
+        else pd.Series(dtype=str)
+    )
+    shop_modes = shop_mode_series.astype(str).str.upper()
+    shop_fixed_series = (
+        shops.get("fixed_price_EUR_per_kWh", pd.Series(0.0, index=shops.index))
+        if nS
+        else pd.Series(dtype=float)
+    )
+    shop_fixed_values = shop_fixed_series.astype(float).to_numpy() if nS else np.zeros(0)
+    shop_is_fixed = shop_modes.eq("FIXED").to_numpy() if nS else np.zeros(0, dtype=bool)
+
+    hh_ret = np.zeros((nH, n_hours))
+    hh_Ppros = np.zeros((nH, n_hours))
+    hh_Pcons = np.zeros((nH, n_hours))
+    hh_gap = np.zeros((nH, n_hours))
+    shop_ret = np.zeros((nS, n_hours))
+    shop_Ppros = np.zeros((nS, n_hours))
+    shop_Pcons = np.zeros((nS, n_hours))
+    shop_gap = np.zeros((nS, n_hours))
+    P_unm = np.zeros(n_hours)
+
+    s_hh_val = float(s_hh)
+    s_sh_val = float(s_sh)
+    spread_split_hh_val = float(spread_split_hh)
+    platform_gap_hh_val = float(platform_gap_hh)
+    spread_split_sh_val = float(spread_split_sh)
+    platform_gap_sh_val = float(platform_gap_sh)
+    delta_unm_val = float(delta_unm)
+
+    for h in range(n_hours):
+        z = float(zonal_vals[h]) / 1000.0
+        pun = float(pun_vals[h])
+
+        if nH:
+            base_ret_hh = np.where(hh_is_fixed, hh_fixed_values, pun + s_hh_val)
+            hh_ret[:, h] = base_ret_hh
+        if nS:
+            base_ret_shop = np.where(shop_is_fixed, shop_fixed_values, pun + s_sh_val)
+            shop_ret[:, h] = base_ret_shop
+
+        if z < 0:
+            if nH:
+                hh_Ppros[:, h] = 0.0
+                hh_Pcons[:, h] = hh_ret[:, h]
+                hh_gap[:, h] = 0.0
+            if nS:
+                shop_Ppros[:, h] = 0.0
+                shop_Pcons[:, h] = shop_ret[:, h]
+                shop_gap[:, h] = 0.0
+        else:
+            z_anchor = max(z, 0.0)
+            if nH:
+                spread_hh = np.maximum(hh_ret[:, h] - z_anchor, 0.0)
+                hh_Ppros[:, h] = np.minimum(
+                    z_anchor + (1 - platform_gap_hh_val) * spread_split_hh_val * spread_hh,
+                    hh_ret[:, h],
+                )
+                hh_Pcons[:, h] = hh_ret[:, h] - (1 - platform_gap_hh_val) * (1 - spread_split_hh_val) * spread_hh
+                hh_gap[:, h] = platform_gap_hh_val * spread_hh
+                if hh_gift:
+                    hh_Ppros[:, h] = 0.0
+                    hh_Pcons[:, h] = 0.0
+                    hh_gap[:, h] = 0.0
+            if nS:
+                spread_shop = np.maximum(shop_ret[:, h] - z_anchor, 0.0)
+                shop_Ppros[:, h] = np.minimum(
+                    z_anchor + (1 - platform_gap_sh_val) * spread_split_sh_val * spread_shop,
+                    shop_ret[:, h],
+                )
+                shop_Pcons[:, h] = shop_ret[:, h] - (1 - platform_gap_sh_val) * (1 - spread_split_sh_val) * spread_shop
+                shop_gap[:, h] = platform_gap_sh_val * spread_shop
+
+        P_unm[h] = max(z + delta_unm_val, 0.0)
 
     for h in range(n_hours):
         hh_need = hh_load[:, h].copy()
@@ -225,13 +311,93 @@ def run_deterministic(
         shop_import[:, h] = shop_need
         pros_exports[:, h] = np.maximum(residual, 0.0)
 
+    total_matched_hh = hh_matched.sum(axis=0) if nH else np.zeros(n_hours)
+    total_matched_shop = shop_matched.sum(axis=0) if nS else np.zeros(n_hours)
+    total_hh_revenue = (hh_matched * hh_Ppros).sum(axis=0) if nH else np.zeros(n_hours)
+    total_shop_revenue = (shop_matched * shop_Ppros).sum(axis=0) if nS else np.zeros(n_hours)
+    hh_cons_revenue_total = (hh_matched * hh_Pcons).sum(axis=0) if nH else np.zeros(n_hours)
+    shop_cons_revenue_total = (shop_matched * shop_Pcons).sum(axis=0) if nS else np.zeros(n_hours)
+    hh_gap_total = (hh_matched * hh_gap).sum(axis=0) if nH else np.zeros(n_hours)
+    shop_gap_total = (shop_matched * shop_gap).sum(axis=0) if nS else np.zeros(n_hours)
+    platform_gap = hh_gap_total + shop_gap_total
+
+    hh_load_totals = hh_load.sum(axis=0) if nH else np.zeros(n_hours)
+    if nH:
+        hh_retail_weighted = np.divide(
+            (hh_load * hh_ret).sum(axis=0),
+            np.maximum(hh_load_totals, 1e-12),
+        )
+        hh_retail_weighted = np.where(
+            hh_load_totals > 1e-12,
+            hh_retail_weighted,
+            hh_ret.mean(axis=0),
+        )
+    else:
+        hh_retail_weighted = pun_vals + s_hh_val
+    grid_price_hh = hh_retail_weighted
+
+    shop_load_totals = shop_load.sum(axis=0) if nS else np.zeros(n_hours)
+    if nS:
+        shop_retail_weighted = np.divide(
+            (shop_load * shop_ret).sum(axis=0),
+            np.maximum(shop_load_totals, 1e-12),
+        )
+        shop_retail_weighted = np.where(
+            shop_load_totals > 1e-12,
+            shop_retail_weighted,
+            shop_ret.mean(axis=0),
+        )
+    else:
+        shop_retail_weighted = pun_vals + s_sh_val
+
+    ret_HH = hh_retail_weighted
+    ret_SH = shop_retail_weighted
+
+    if nH:
+        denom_hh = np.maximum(total_matched_hh, 1e-12)
+        Ppros_HH_avg = total_hh_revenue / denom_hh
+        Pcons_HH_avg = hh_cons_revenue_total / denom_hh
+        gap_HH_avg = hh_gap_total / denom_hh
+        Ppros_HH_avg = np.where(total_matched_hh > 1e-12, Ppros_HH_avg, 0.0)
+        Pcons_HH_avg = np.where(total_matched_hh > 1e-12, Pcons_HH_avg, 0.0)
+        gap_HH_avg = np.where(total_matched_hh > 1e-12, gap_HH_avg, 0.0)
+    else:
+        Ppros_HH_avg = np.zeros(n_hours)
+        Pcons_HH_avg = np.zeros(n_hours)
+        gap_HH_avg = np.zeros(n_hours)
+
+    if nS:
+        denom_sh = np.maximum(total_matched_shop, 1e-12)
+        Ppros_SH_avg = total_shop_revenue / denom_sh
+        Pcons_SH_avg = shop_cons_revenue_total / denom_sh
+        gap_SH_avg = shop_gap_total / denom_sh
+        Ppros_SH_avg = np.where(total_matched_shop > 1e-12, Ppros_SH_avg, 0.0)
+        Pcons_SH_avg = np.where(total_matched_shop > 1e-12, Pcons_SH_avg, 0.0)
+        gap_SH_avg = np.where(total_matched_shop > 1e-12, gap_SH_avg, 0.0)
+    else:
+        Ppros_SH_avg = np.zeros(n_hours)
+        Pcons_SH_avg = np.zeros(n_hours)
+        gap_SH_avg = np.zeros(n_hours)
+
     if nP:
-        pros_rev_self = pros_self * ret_HH[None, :]
-        pros_rev_matched_hh = pros_matched_hh * Ppros_HH[None, :]
-        pros_rev_matched_shop = pros_matched_shop * Ppros_SH[None, :]
+        pros_rev_self = pros_self * grid_price_hh[None, :]
+        pros_rev_import_cost = pros_import * grid_price_hh[None, :]
+        pros_rev_matched_hh = np.zeros((nP, n_hours))
+        if nH:
+            for h in range(n_hours):
+                supply = pros_matched_hh[:, h].sum()
+                if supply > 1e-12 and total_matched_hh[h] > 1e-12:
+                    shares = pros_matched_hh[:, h] / supply
+                    pros_rev_matched_hh[:, h] = shares * total_hh_revenue[h]
+        pros_rev_matched_shop = np.zeros((nP, n_hours))
+        if nS:
+            for h in range(n_hours):
+                supply_shop = pros_matched_shop[:, h].sum()
+                if supply_shop > 1e-12 and total_matched_shop[h] > 1e-12:
+                    shares = pros_matched_shop[:, h] / supply_shop
+                    pros_rev_matched_shop[:, h] = shares * total_shop_revenue[h]
         pros_rev_matched = pros_rev_matched_hh + pros_rev_matched_shop
         pros_rev_export = pros_exports * P_unm[None, :]
-        pros_rev_import_cost = pros_import * ret_HH[None, :]
         pros_rev = pros_rev_self + pros_rev_matched + pros_rev_export - pros_rev_import_cost
         pros_rev_no_share = (
             pros_rev_self
@@ -248,19 +414,15 @@ def run_deterministic(
         pros_rev = np.zeros((0, n_hours))
         pros_rev_no_share = np.zeros((0, n_hours))
 
-    hh_matched_cost = hh_matched * Pcons_HH[None, :] if nH else np.zeros((0, n_hours))
-    hh_import_cost = hh_import * ret_HH[None, :] if nH else np.zeros((0, n_hours))
+    hh_matched_cost = hh_matched * hh_Pcons if nH else np.zeros((0, n_hours))
+    hh_import_cost = hh_import * hh_ret if nH else np.zeros((0, n_hours))
     hh_cost = (hh_matched_cost + hh_import_cost) if nH else np.zeros((0, n_hours))
-    hh_baseline = hh_load * ret_HH[None, :] if nH else np.zeros((0, n_hours))
+    hh_baseline = hh_load * hh_ret if nH else np.zeros((0, n_hours))
 
-    shop_matched_cost = shop_matched * Pcons_SH[None, :] if nS else np.zeros((0, n_hours))
-    shop_import_cost = shop_import * ret_SH[None, :] if nS else np.zeros((0, n_hours))
+    shop_matched_cost = shop_matched * shop_Pcons if nS else np.zeros((0, n_hours))
+    shop_import_cost = shop_import * shop_ret if nS else np.zeros((0, n_hours))
     shop_cost = (shop_matched_cost + shop_import_cost) if nS else np.zeros((0, n_hours))
-    shop_baseline = shop_load * ret_SH[None, :] if nS else np.zeros((0, n_hours))
-
-    gap_hh = hh_matched.sum(axis=0) * gap_HH if nH else np.zeros(n_hours)
-    gap_shop = shop_matched.sum(axis=0) * gap_SH if nS else np.zeros(n_hours)
-    platform_gap = gap_hh + gap_shop
+    shop_baseline = shop_load * shop_ret if nS else np.zeros((0, n_hours))
 
     platform_fees = 12.0 * (
         nP * float(fees.get("f_pros", 0.0))
@@ -788,12 +950,12 @@ def run_deterministic(
         "PUN (EUR_per_kWh)": pun_series.to_numpy(),
         "retail_HH (EUR_per_kWh)": ret_HH,
         "retail_SH (EUR_per_kWh)": ret_SH,
-        "Ppros_HH (EUR_per_kWh)": Ppros_HH,
-        "Pcons_HH (EUR_per_kWh)": Pcons_HH,
-        "gap_HH (EUR_per_kWh)": gap_HH,
-        "Ppros_SH (EUR_per_kWh)": Ppros_SH,
-        "Pcons_SH (EUR_per_kWh)": Pcons_SH,
-        "gap_SH (EUR_per_kWh)": gap_SH,
+        "Ppros_HH (EUR_per_kWh)": Ppros_HH_avg,
+        "Pcons_HH (EUR_per_kWh)": Pcons_HH_avg,
+        "gap_HH (EUR_per_kWh)": gap_HH_avg,
+        "Ppros_SH (EUR_per_kWh)": Ppros_SH_avg,
+        "Pcons_SH (EUR_per_kWh)": Pcons_SH_avg,
+        "gap_SH (EUR_per_kWh)": gap_SH_avg,
         "P_unm (EUR_per_kWh)": P_unm,
     })
 
