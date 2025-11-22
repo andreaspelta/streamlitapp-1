@@ -121,6 +121,12 @@ def build_shop_template(year: int) -> bytes:
     return _build_profile_template_cached(int(year), "SHOP")
 
 
+def build_prosumer_template(year: int) -> bytes:
+    """Excel template for prosumer cluster medians (24×12 grid)."""
+
+    return _build_profile_template_cached(int(year), "PROSUMER")
+
+
 @lru_cache(maxsize=16)
 def _build_pv_excel_template_cached(year: int) -> bytes:
     start = pd.Timestamp(f"{int(year)}-01-01 00:00", tz=TZ)

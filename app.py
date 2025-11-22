@@ -10,6 +10,7 @@ from src.io_utils import (
     read_pv_excel,
     read_household_template,
     read_shop_template,
+    read_prosumer_template,
     read_zonal_excel,
     read_pun_monthly_excel,
     ensure_price_hours,
@@ -19,6 +20,7 @@ from src.exporters import (
     build_pv_excel_template,
     build_household_template,
     build_shop_template,
+    build_prosumer_template,
     build_zonal_price_template,
     build_pun_monthly_template,
     export_all_in_one_xlsx,
@@ -80,6 +82,8 @@ def _set_year(year: int):
     S.pv_df = None
     S.pv_series = None
     S.pv_file_digest = None
+    if S.prosumer_medians is not None:
+        S.prosumer_series = build_hourly_profile(S.hours, S.prosumer_medians)
     if S.hh_medians is not None:
         S.hh_series = build_hourly_profile(S.hours, S.hh_medians)
     if S.shop_medians is not None:
@@ -181,6 +185,31 @@ if page == "1) Templates & Inputs":
                 S.hh_medians = None
                 S.hh_series = None
                 S.hh_file_digest = None
+
+    st.subheader("Prosumer median profile (12 clusters)")
+    st.download_button(
+        "Download PROSUMER template",
+        build_prosumer_template(S.year),
+        file_name=f"prosumer_medians_{S.year}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+    prosumer_file = st.file_uploader("Upload prosumer template", type=["xlsx"], key="prosumer")
+    if prosumer_file:
+        data = prosumer_file.getvalue()
+        digest = hashlib.md5(data).hexdigest()
+        if digest != S.prosumer_file_digest:
+            try:
+                medians = read_prosumer_template(BytesIO(data))
+                S.prosumer_medians = medians
+                if S.hours is not None:
+                    S.prosumer_series = build_hourly_profile(S.hours, medians)
+                S.prosumer_file_digest = digest
+                info_box("Prosumer template loaded.")
+            except Exception as exc:
+                error_box(f"Failed to read prosumer template: {exc}")
+                S.prosumer_medians = None
+                S.prosumer_series = None
+                S.prosumer_file_digest = None
 
     st.subheader("Shop median profile (12 clusters)")
     st.download_button(
@@ -372,6 +401,7 @@ elif page == "3) Run Deterministic":
     required = {
         "calendar": S.hours,
         "PV template": S.pv_series,
+        "Prosumer template": S.prosumer_series,
         "HH template": S.hh_series,
         "SHOP template": S.shop_series,
         "Zonal prices": S.zonal,
@@ -419,6 +449,7 @@ elif page == "3) Run Deterministic":
                     S.result = run_deterministic(
                         hours=S.hours,
                         pv_series=S.pv_series,
+                        prosumer_series=S.prosumer_series,
                         hh_series=S.hh_series,
                         shop_series=S.shop_series,
                         prosumers=prosumers_df,

@@ -81,6 +81,7 @@ def run_deterministic(
     *,
     hours: pd.DatetimeIndex,
     pv_series: pd.Series,
+    prosumer_series: pd.Series,
     hh_series: pd.Series,
     shop_series: pd.Series,
     prosumers: pd.DataFrame,
@@ -114,6 +115,7 @@ def run_deterministic(
         raise ValueError("Hourly PUN has missing values after reindexing.")
 
     pv_series = _ensure_alignment(pv_series, hours, "PV template")
+    prosumer_series = _ensure_alignment(prosumer_series, hours, "Prosumer template")
     hh_series = _ensure_alignment(hh_series, hours, "Household template")
     shop_series = _ensure_alignment(shop_series, hours, "Shop template")
 
@@ -134,11 +136,12 @@ def run_deterministic(
     shop_province = shops.get("province", pd.Series("Province", index=shops.index)).astype(str).tolist()
 
     pv_vals = pv_series.to_numpy()
+    prosumer_vals = prosumer_series.to_numpy()
     hh_vals = hh_series.to_numpy()
     shop_vals = shop_series.to_numpy()
 
     pros_gen = (kwp[:, None] * pv_vals[None, :] * float(efficiency)) if nP else np.zeros((0, n_hours))
-    pros_load = (w_self[:, None] * hh_vals[None, :]) if nP else np.zeros((0, n_hours))
+    pros_load = (w_self[:, None] * prosumer_vals[None, :]) if nP else np.zeros((0, n_hours))
     pros_self = np.minimum(pros_gen, pros_load)
     pros_import = np.maximum(pros_load - pros_gen, 0.0)
     pros_surplus = np.maximum(pros_gen - pros_load, 0.0)

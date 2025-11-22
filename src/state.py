@@ -12,6 +12,8 @@ class AppState:
     # Uploaded deterministic templates
     pv_df: Optional[pd.DataFrame] = None
     pv_series: Optional[pd.Series] = None
+    prosumer_medians: Optional[pd.DataFrame] = None
+    prosumer_series: Optional[pd.Series] = None
     hh_medians: Optional[pd.DataFrame] = None
     hh_series: Optional[pd.Series] = None
     shop_medians: Optional[pd.DataFrame] = None
@@ -22,6 +24,7 @@ class AppState:
     pun_h: Optional[pd.DataFrame] = None   # hourly PUN €/kWh (expanded)
 
     pv_file_digest: Optional[str] = None
+    prosumer_file_digest: Optional[str] = None
     hh_file_digest: Optional[str] = None
     shop_file_digest: Optional[str] = None
     zonal_file_digest: Optional[str] = None

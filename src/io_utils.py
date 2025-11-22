@@ -256,6 +256,12 @@ def read_shop_template(file: IO) -> pd.DataFrame:
 
     return _read_cluster_template(file, "SHOP")
 
+
+def read_prosumer_template(file: IO) -> pd.DataFrame:
+    """Read deterministic prosumer cluster medians (24×12)."""
+
+    return _read_cluster_template(file, "PROSUMER")
+
 def read_zonal_excel(file: IO) -> pd.DataFrame:
     buffer = _reset_file_like(file)
     df = _read_excel_with_flexible_header(buffer, {"timestamp"})
